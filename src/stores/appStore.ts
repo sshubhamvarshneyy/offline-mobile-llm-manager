@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DeviceInfo, DownloadedModel, ModelRecommendation, BackgroundDownloadInfo } from '../types';
+import { DeviceInfo, DownloadedModel, ModelRecommendation, BackgroundDownloadInfo, ONNXImageModel, ImageGenerationMode, AutoDetectMethod, ModelLoadingStrategy } from '../types';
 
 interface AppState {
   // Onboarding
@@ -68,8 +68,32 @@ interface AppState {
     // Performance settings
     nThreads: number;
     nBatch: number;
+    // Image generation settings
+    imageGenerationMode: ImageGenerationMode;
+    autoDetectMethod: AutoDetectMethod;
+    classifierModelId: string | null;
+    imageSteps: number;
+    imageGuidanceScale: number;
+    // Model loading strategy: 'performance' keeps models loaded, 'memory' loads on demand
+    modelLoadingStrategy: ModelLoadingStrategy;
   };
   updateSettings: (settings: Partial<AppState['settings']>) => void;
+
+  // Image models (ONNX-based)
+  downloadedImageModels: ONNXImageModel[];
+  activeImageModelId: string | null;
+  setDownloadedImageModels: (models: ONNXImageModel[]) => void;
+  addDownloadedImageModel: (model: ONNXImageModel) => void;
+  removeDownloadedImageModel: (modelId: string) => void;
+  setActiveImageModelId: (modelId: string | null) => void;
+
+  // Image generation state
+  isGeneratingImage: boolean;
+  imageGenerationProgress: { step: number; totalSteps: number } | null;
+  imageGenerationStatus: string | null;
+  setIsGeneratingImage: (generating: boolean) => void;
+  setImageGenerationProgress: (progress: { step: number; totalSteps: number } | null) => void;
+  setImageGenerationStatus: (status: string | null) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -152,11 +176,46 @@ export const useAppStore = create<AppState>()(
         // Performance - higher threads = faster on multi-core devices
         nThreads: 6,
         nBatch: 256,
+        // Image generation - 'auto' uses LLM to classify intent
+        imageGenerationMode: 'auto',
+        // Auto-detection method: 'pattern' (fast regex only) or 'llm' (use model for uncertain cases)
+        autoDetectMethod: 'pattern',
+        // Model to use for LLM-based classification (null = use current model)
+        classifierModelId: null as string | null,
+        // Image generation steps (more = better quality but slower)
+        imageSteps: 30,
+        // Guidance scale for image generation
+        imageGuidanceScale: 7.5,
+        // Model loading strategy: 'performance' = keep loaded, 'memory' = load on demand
+        modelLoadingStrategy: 'memory' as ModelLoadingStrategy,
       },
       updateSettings: (newSettings) =>
         set((state) => ({
           settings: { ...state.settings, ...newSettings },
         })),
+
+      // Image models (ONNX-based)
+      downloadedImageModels: [],
+      activeImageModelId: null,
+      setDownloadedImageModels: (models) => set({ downloadedImageModels: models }),
+      addDownloadedImageModel: (model) =>
+        set((state) => ({
+          downloadedImageModels: [...state.downloadedImageModels.filter(m => m.id !== model.id), model],
+        })),
+      removeDownloadedImageModel: (modelId) =>
+        set((state) => ({
+          downloadedImageModels: state.downloadedImageModels.filter((m) => m.id !== modelId),
+          activeImageModelId: state.activeImageModelId === modelId ? null : state.activeImageModelId,
+        })),
+      setActiveImageModelId: (modelId) => set({ activeImageModelId: modelId }),
+
+      // Image generation state
+      isGeneratingImage: false,
+      imageGenerationProgress: null,
+      imageGenerationStatus: null,
+      setIsGeneratingImage: (generating) => set({ isGeneratingImage: generating }),
+      setImageGenerationProgress: (progress) => set({ imageGenerationProgress: progress }),
+      setImageGenerationStatus: (status) => set({ imageGenerationStatus: status }),
     }),
     {
       name: 'local-llm-app-storage',
@@ -166,6 +225,8 @@ export const useAppStore = create<AppState>()(
         activeModelId: state.activeModelId,
         settings: state.settings,
         activeBackgroundDownloads: state.activeBackgroundDownloads,
+        // Persist image model state
+        activeImageModelId: state.activeImageModelId,
       }),
     }
   )
