@@ -12,8 +12,11 @@ import {
   Modal,
   ScrollView,
   Image,
+  Dimensions,
+  PermissionsAndroid,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
+import RNFS from 'react-native-fs';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import {
@@ -109,6 +112,9 @@ export const ChatScreen: React.FC = () => {
 
   // Track image mode state
   const [currentImageMode, setCurrentImageMode] = useState<ImageModeState>('auto');
+
+  // Fullscreen image viewer state
+  const [viewerImageUri, setViewerImageUri] = useState<string | null>(null);
 
   // Handle route params - set active conversation or create new one
   useEffect(() => {
@@ -279,6 +285,11 @@ export const ChatScreen: React.FC = () => {
 
   // Determine if message should be routed to image generation
   const shouldRouteToImageGeneration = async (text: string, forceImageMode?: boolean): Promise<boolean> => {
+    // If already generating image, don't start another one - route to text
+    if (isGeneratingImage) {
+      return false;
+    }
+
     // Manual mode: only generate image when explicitly forced
     if (settings.imageGenerationMode === 'manual') {
       return forceImageMode === true;
@@ -301,8 +312,8 @@ export const ChatScreen: React.FC = () => {
         ? downloadedModels.find(m => m.id === settings.classifierModelId)
         : null;
 
-      // Show status when using LLM classification
-      if (useLLM) {
+      // Show status when using LLM classification (only if not already generating)
+      if (useLLM && !isGeneratingImage) {
         setIsGeneratingImage(true);
         setImageGenerationStatus('Preparing classifier...');
       }
@@ -315,8 +326,8 @@ export const ChatScreen: React.FC = () => {
         modelLoadingStrategy: settings.modelLoadingStrategy,
       });
 
-      // Clear status if not generating image
-      if (intent !== 'image') {
+      // Clear status if not generating image (and we set it during classification)
+      if (intent !== 'image' && useLLM) {
         setImageGenerationStatus(null);
         setIsGeneratingImage(false);
       }
@@ -780,6 +791,64 @@ export const ChatScreen: React.FC = () => {
     await handleImageGeneration(prompt, activeConversationId, true);
   };
 
+  // Handle image tap to show fullscreen viewer
+  const handleImagePress = (uri: string) => {
+    setViewerImageUri(uri);
+  };
+
+  // Save image to device gallery/downloads
+  const handleSaveImage = async () => {
+    if (!viewerImageUri) return;
+
+    try {
+      // Request permission on Android
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+          {
+            title: 'Storage Permission',
+            message: 'App needs access to save images',
+            buttonNeutral: 'Ask Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+        // Continue anyway on Android 10+ (scoped storage)
+      }
+
+      // Get the source path (remove file:// prefix if present)
+      const sourcePath = viewerImageUri.replace('file://', '');
+
+      // Create destination path in Pictures/LocalLLM folder
+      const picturesDir = Platform.OS === 'android'
+        ? `${RNFS.ExternalStorageDirectoryPath}/Pictures/LocalLLM`
+        : `${RNFS.DocumentDirectoryPath}/LocalLLM_Images`;
+
+      // Create directory if it doesn't exist
+      if (!(await RNFS.exists(picturesDir))) {
+        await RNFS.mkdir(picturesDir);
+      }
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileName = `generated_${timestamp}.png`;
+      const destPath = `${picturesDir}/${fileName}`;
+
+      // Copy the file
+      await RNFS.copyFile(sourcePath, destPath);
+
+      Alert.alert(
+        'Image Saved',
+        Platform.OS === 'android'
+          ? `Saved to Pictures/LocalLLM/${fileName}`
+          : `Saved to ${fileName}`
+      );
+    } catch (error: any) {
+      console.error('[ChatScreen] Failed to save image:', error);
+      Alert.alert('Error', `Failed to save image: ${error?.message || 'Unknown error'}`);
+    }
+  };
+
   const renderMessage = ({ item }: { item: Message }) => (
     <ChatMessage
       message={item}
@@ -788,6 +857,7 @@ export const ChatScreen: React.FC = () => {
       onRetry={handleRetryMessage}
       onEdit={handleEditMessage}
       onGenerateImage={handleGenerateImageFromMessage}
+      onImagePress={handleImagePress}
       canGenerateImage={imageModelLoaded && !isStreaming && !isGeneratingImage}
     />
   );
@@ -1246,6 +1316,47 @@ export const ChatScreen: React.FC = () => {
         visible={showSettingsPanel}
         onClose={() => setShowSettingsPanel(false)}
       />
+
+      {/* Fullscreen Image Viewer Modal */}
+      <Modal
+        visible={!!viewerImageUri}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setViewerImageUri(null)}
+      >
+        <View style={styles.imageViewerContainer}>
+          <TouchableOpacity
+            style={styles.imageViewerBackdrop}
+            activeOpacity={1}
+            onPress={() => setViewerImageUri(null)}
+          />
+          {viewerImageUri && (
+            <View style={styles.imageViewerContent}>
+              <Image
+                source={{ uri: viewerImageUri }}
+                style={styles.fullscreenImage}
+                resizeMode="contain"
+              />
+              <View style={styles.imageViewerActions}>
+                <TouchableOpacity
+                  style={styles.imageViewerButton}
+                  onPress={handleSaveImage}
+                >
+                  <Icon name="download" size={24} color={COLORS.text} />
+                  <Text style={styles.imageViewerButtonText}>Save</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.imageViewerButton}
+                  onPress={() => setViewerImageUri(null)}
+                >
+                  <Icon name="x" size={24} color={COLORS.text} />
+                  <Text style={styles.imageViewerButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -1756,5 +1867,44 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.error + '20',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Fullscreen image viewer styles
+  imageViewerContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  imageViewerContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullscreenImage: {
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').height * 0.7,
+  },
+  imageViewerActions: {
+    flexDirection: 'row',
+    position: 'absolute',
+    bottom: 60,
+    gap: 40,
+  },
+  imageViewerButton: {
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    minWidth: 80,
+  },
+  imageViewerButtonText: {
+    color: COLORS.text,
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '500',
   },
 });
