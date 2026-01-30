@@ -25,71 +25,48 @@ import { huggingFaceService, modelManager, hardwareService, onnxImageGeneratorSe
 import { ModelInfo, ModelFile, DownloadedModel, ModelSource, ONNXImageModel } from '../types';
 import { RootStackParamList } from '../navigation/types';
 
+// HuggingFace file structure for LCM model
+const LCM_HUGGINGFACE_FILES = [
+  { path: 'text_encoder/model.onnx', size: 247 * 1024 * 1024 },
+  { path: 'unet/model.onnx', size: 93.7 * 1024 * 1024 },
+  { path: 'unet/model.onnx_data', size: 1.64 * 1024 * 1024 * 1024 },
+  { path: 'unet/config.json', size: 2 * 1024 },
+  { path: 'vae_decoder/model.onnx', size: 2.11 * 1024 * 1024 },
+  { path: 'vae_decoder/model.onnx_data', size: 97.4 * 1024 * 1024 },
+  { path: 'vae_decoder/config.json', size: 1 * 1024 },
+  { path: 'tokenizer/vocab.json', size: 1.06 * 1024 * 1024 },
+  { path: 'tokenizer/merges.txt', size: 525 * 1024 },
+  { path: 'tokenizer/tokenizer_config.json', size: 2 * 1024 },
+  { path: 'tokenizer/special_tokens_map.json', size: 1 * 1024 },
+];
+
 // Predefined ONNX image models available for download
-const AVAILABLE_IMAGE_MODELS = [
+const AVAILABLE_IMAGE_MODELS: Array<{
+  id: string;
+  name: string;
+  description: string;
+  downloadUrl?: string;
+  huggingFaceRepo?: string;
+  huggingFaceFiles?: Array<{ path: string; size: number }>;
+  size: number;
+  style: string;
+}> = [
   {
-    id: 'epicrealism_pureEvolutionV4',
-    name: 'Epic Realism v4',
-    description: 'High quality photorealistic images, best for portraits',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/epicrealism_pureEvolutionV4.zip',
-    size: 603 * 1024 * 1024,
+    id: 'absolute_reality',
+    name: 'Absolute Reality',
+    description: 'Best photorealistic model - high fidelity portraits and scenes',
+    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-14022024/majicmix.zip',
+    size: 1034 * 1024 * 1024, // ~1GB
     style: 'photorealistic',
   },
   {
-    id: 'beautifulRealistic_v60',
-    name: 'Beautiful Realistic v6',
-    description: 'Stunning realistic portraits and scenes',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/beautifulRealistic_v60.zip',
-    size: 603 * 1024 * 1024,
-    style: 'photorealistic',
-  },
-  {
-    id: 'realvision',
-    name: 'RealVision',
-    description: 'Versatile realistic model, great all-rounder',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-14022024/realvision.zip',
-    size: 603 * 1024 * 1024,
-    style: 'photorealistic',
-  },
-  {
-    id: 'majicmixRealistic_betterV2V25',
-    name: 'MajicMix Realistic',
-    description: 'Asian-style realistic portraits',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/majicmixRealistic_betterV2V25.zip',
-    size: 603 * 1024 * 1024,
-    style: 'photorealistic',
-  },
-  {
-    id: 'dreamshaper',
-    name: 'DreamShaper',
-    description: 'Creative and artistic style, great for fantasy',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/dreamshaper.zip',
-    size: 603 * 1024 * 1024,
+    id: 'lcm_dreamshaper_v7',
+    name: 'LCM DreamShaper v7',
+    description: 'Fast generation (4-8 steps) - 40-50% faster per step',
+    huggingFaceRepo: 'aislamov/lcm-dreamshaper-v7-onnx',
+    huggingFaceFiles: LCM_HUGGINGFACE_FILES,
+    size: 2.22 * 1024 * 1024 * 1024, // ~2.22GB
     style: 'creative',
-  },
-  {
-    id: 'deliberate',
-    name: 'Deliberate',
-    description: 'Versatile artistic and realistic style',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/deliberate.zip',
-    size: 603 * 1024 * 1024,
-    style: 'creative',
-  },
-  {
-    id: 'meinamix',
-    name: 'MeinaMix',
-    description: 'High quality anime illustrations',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/meinamix.zip',
-    size: 603 * 1024 * 1024,
-    style: 'anime',
-  },
-  {
-    id: 'aniflatmix',
-    name: 'AniFlatMix',
-    description: 'Flat anime and illustration style',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/aniflatmix.zip',
-    size: 603 * 1024 * 1024,
-    style: 'anime',
   },
 ];
 
@@ -203,10 +180,118 @@ export const ModelsScreen: React.FC = () => {
     setIsRefreshing(false);
   }, []);
 
+  // Download from HuggingFace (multi-file download)
+  const handleDownloadHuggingFaceModel = async (modelInfo: typeof AVAILABLE_IMAGE_MODELS[0]) => {
+    if (!modelInfo.huggingFaceRepo || !modelInfo.huggingFaceFiles) {
+      Alert.alert('Error', 'Invalid HuggingFace model configuration');
+      return;
+    }
+
+    setImageModelDownloading(modelInfo.id);
+    setImageModelProgress(0);
+
+    try {
+      const imageModelsDir = modelManager.getImageModelsDirectory();
+      const modelDir = `${imageModelsDir}/${modelInfo.id}`;
+
+      // Create directories if needed
+      if (!(await RNFS.exists(imageModelsDir))) {
+        await RNFS.mkdir(imageModelsDir);
+      }
+      if (!(await RNFS.exists(modelDir))) {
+        await RNFS.mkdir(modelDir);
+      }
+
+      const files = modelInfo.huggingFaceFiles;
+      const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+      let downloadedSize = 0;
+
+      // Download each file
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileUrl = `https://huggingface.co/${modelInfo.huggingFaceRepo}/resolve/main/${file.path}`;
+        const filePath = `${modelDir}/${file.path}`;
+
+        // Create subdirectory if needed
+        const fileDir = filePath.substring(0, filePath.lastIndexOf('/'));
+        if (!(await RNFS.exists(fileDir))) {
+          await RNFS.mkdir(fileDir);
+        }
+
+        console.log(`[HuggingFace] Downloading ${file.path} (${i + 1}/${files.length})`);
+
+        // Download file with progress
+        const downloadResult = RNFS.downloadFile({
+          fromUrl: fileUrl,
+          toFile: filePath,
+          background: true,
+          discretionary: false,
+          progressInterval: 500,
+          progress: (res) => {
+            const fileProgress = res.bytesWritten / res.contentLength;
+            const overallProgress = (downloadedSize + res.bytesWritten) / totalSize;
+            setImageModelProgress(overallProgress * 0.95);
+          },
+        });
+
+        const result = await downloadResult.promise;
+
+        if (result.statusCode !== 200) {
+          throw new Error(`Failed to download ${file.path}: HTTP ${result.statusCode}`);
+        }
+
+        downloadedSize += file.size;
+        setImageModelProgress((downloadedSize / totalSize) * 0.95);
+      }
+
+      // Register the model
+      const imageModel: ONNXImageModel = {
+        id: modelInfo.id,
+        name: modelInfo.name,
+        description: modelInfo.description,
+        modelPath: modelDir,
+        downloadedAt: new Date().toISOString(),
+        size: modelInfo.size,
+        style: modelInfo.style,
+      };
+
+      await modelManager.addDownloadedImageModel(imageModel);
+      addDownloadedImageModel(imageModel);
+
+      if (!activeImageModelId) {
+        setActiveImageModelId(imageModel.id);
+      }
+
+      setImageModelProgress(1);
+      Alert.alert('Success', `${modelInfo.name} downloaded successfully!`);
+    } catch (error: any) {
+      console.error('[HuggingFace] Download error:', error);
+      Alert.alert('Download Failed', error?.message || 'Unknown error');
+      // Clean up partial download
+      try {
+        const modelDir = `${modelManager.getImageModelsDirectory()}/${modelInfo.id}`;
+        if (await RNFS.exists(modelDir)) {
+          await RNFS.unlink(modelDir);
+        }
+      } catch (e) {
+        console.warn('[HuggingFace] Failed to clean up:', e);
+      }
+    } finally {
+      setImageModelDownloading(null);
+      setImageModelProgress(0);
+    }
+  };
+
   // Image model download/management - uses native background download service
   const handleDownloadImageModel = async (modelInfo: typeof AVAILABLE_IMAGE_MODELS[0]) => {
     if (imageModelDownloading) {
       Alert.alert('Download in Progress', 'Please wait for the current download to complete.');
+      return;
+    }
+
+    // Route to HuggingFace downloader if it's a HuggingFace model
+    if (modelInfo.huggingFaceRepo && modelInfo.huggingFaceFiles) {
+      await handleDownloadHuggingFaceModel(modelInfo);
       return;
     }
 
@@ -225,7 +310,7 @@ export const ModelsScreen: React.FC = () => {
 
       // Start background download
       const downloadInfo = await backgroundDownloadService.startDownload({
-        url: modelInfo.downloadUrl,
+        url: modelInfo.downloadUrl!,
         fileName: fileName,
         modelId: `image:${modelInfo.id}`,
         title: `Downloading ${modelInfo.name}`,
