@@ -21,7 +21,7 @@ interface ChatState {
   setConversationProject: (conversationId: string, projectId: string | null) => void;
 
   // Messages
-  addMessage: (conversationId: string, message: Omit<Message, 'id' | 'timestamp'>, attachments?: MediaAttachment[]) => Message;
+  addMessage: (conversationId: string, message: Omit<Message, 'id' | 'timestamp'>, attachments?: MediaAttachment[], generationTimeMs?: number) => Message;
   updateMessage: (conversationId: string, messageId: string, content: string) => void;
   deleteMessage: (conversationId: string, messageId: string) => void;
   deleteMessagesAfter: (conversationId: string, messageId: string) => void;
@@ -31,7 +31,7 @@ interface ChatState {
   appendToStreamingMessage: (token: string) => void;
   setIsStreaming: (streaming: boolean) => void;
   setIsThinking: (thinking: boolean) => void;
-  finalizeStreamingMessage: (conversationId: string) => void;
+  finalizeStreamingMessage: (conversationId: string, generationTimeMs?: number) => void;
   clearStreamingMessage: () => void;
 
   // Utilities
@@ -109,12 +109,13 @@ export const useChatStore = create<ChatState>()(
         }));
       },
 
-      addMessage: (conversationId, messageData, attachments) => {
+      addMessage: (conversationId, messageData, attachments, generationTimeMs) => {
         const message: Message = {
           id: generateId(),
           ...messageData,
           timestamp: Date.now(),
           attachments: attachments,
+          generationTimeMs: generationTimeMs,
         };
 
         set((state) => ({
@@ -199,13 +200,13 @@ export const useChatStore = create<ChatState>()(
         set({ isThinking: thinking });
       },
 
-      finalizeStreamingMessage: (conversationId) => {
+      finalizeStreamingMessage: (conversationId, generationTimeMs) => {
         const { streamingMessage, addMessage } = get();
         if (streamingMessage.trim()) {
           addMessage(conversationId, {
             role: 'assistant',
             content: streamingMessage.trim(),
-          });
+          }, undefined, generationTimeMs);
         }
         set({ streamingMessage: '', isStreaming: false, isThinking: false });
       },
