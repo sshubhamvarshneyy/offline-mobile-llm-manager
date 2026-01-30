@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,15 +8,18 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/Feather';
 import { COLORS } from '../constants';
 import { useAppStore } from '../stores';
 import { DownloadedModel } from '../types';
+import { onnxImageGeneratorService } from '../services';
 
 interface ModelSelectorModalProps {
   visible: boolean;
   onClose: () => void;
   onSelectModel: (model: DownloadedModel) => void;
   onUnloadModel: () => void;
+  onUnloadImageModel?: () => void;
   isLoading: boolean;
   currentModelPath: string | null;
 }
@@ -26,11 +29,46 @@ export const ModelSelectorModal: React.FC<ModelSelectorModalProps> = ({
   onClose,
   onSelectModel,
   onUnloadModel,
+  onUnloadImageModel,
   isLoading,
   currentModelPath,
 }) => {
-  const { downloadedModels } = useAppStore();
+  const { downloadedModels, downloadedImageModels, activeImageModelId, setActiveImageModelId } = useAppStore();
   const hasLoadedModel = currentModelPath !== null;
+  const [imageModelLoaded, setImageModelLoaded] = useState(false);
+  const [imageModelPath, setImageModelPath] = useState<string | null>(null);
+  const [isUnloadingImage, setIsUnloadingImage] = useState(false);
+
+  // Check image model loaded state when modal opens
+  useEffect(() => {
+    if (visible) {
+      checkImageModelState();
+    }
+  }, [visible]);
+
+  const checkImageModelState = async () => {
+    const loaded = await onnxImageGeneratorService.isModelLoaded();
+    const path = await onnxImageGeneratorService.getLoadedModelPath();
+    setImageModelLoaded(loaded);
+    setImageModelPath(path);
+  };
+
+  const handleUnloadImageModel = async () => {
+    setIsUnloadingImage(true);
+    try {
+      await onnxImageGeneratorService.unloadModel();
+      setImageModelLoaded(false);
+      setImageModelPath(null);
+      onUnloadImageModel?.();
+    } catch (error) {
+      console.error('Failed to unload image model:', error);
+    } finally {
+      setIsUnloadingImage(false);
+    }
+  };
+
+  const activeImageModel = downloadedImageModels.find(m => m.id === activeImageModelId);
+  const loadedImageModel = downloadedImageModels.find(m => m.modelPath === imageModelPath);
 
   const formatSize = (bytes: number): string => {
     if (bytes >= 1024 * 1024 * 1024) {
@@ -85,17 +123,63 @@ export const ModelSelectorModal: React.FC<ModelSelectorModalProps> = ({
           )}
 
           <ScrollView style={styles.content}>
-            {/* Unload button when a model is loaded */}
-            {hasLoadedModel && (
-              <TouchableOpacity
-                style={styles.unloadButton}
-                onPress={onUnloadModel}
-                disabled={isLoading}
-              >
-                <Text style={styles.unloadButtonText}>Unload Current Model</Text>
-                <Text style={styles.unloadButtonHint}>Free up memory</Text>
-              </TouchableOpacity>
+            {/* Loaded Models Section */}
+            {(hasLoadedModel || imageModelLoaded) && (
+              <View style={styles.loadedSection}>
+                <Text style={styles.sectionTitle}>Currently Loaded</Text>
+
+                {/* Text Model */}
+                {hasLoadedModel && (
+                  <View style={styles.loadedModelItem}>
+                    <View style={styles.loadedModelIcon}>
+                      <Icon name="message-square" size={18} color={COLORS.primary} />
+                    </View>
+                    <View style={styles.loadedModelInfo}>
+                      <Text style={styles.loadedModelType}>Text Model</Text>
+                      <Text style={styles.loadedModelName} numberOfLines={1}>
+                        {downloadedModels.find(m => m.filePath === currentModelPath)?.name || 'Unknown'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.unloadIconButton}
+                      onPress={onUnloadModel}
+                      disabled={isLoading}
+                    >
+                      <Icon name="x" size={18} color={COLORS.error} />
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Image Model */}
+                {imageModelLoaded && (
+                  <View style={styles.loadedModelItem}>
+                    <View style={[styles.loadedModelIcon, { backgroundColor: COLORS.secondary + '20' }]}>
+                      <Icon name="image" size={18} color={COLORS.secondary} />
+                    </View>
+                    <View style={styles.loadedModelInfo}>
+                      <Text style={styles.loadedModelType}>Image Model</Text>
+                      <Text style={styles.loadedModelName} numberOfLines={1}>
+                        {loadedImageModel?.name || activeImageModel?.name || 'Unknown'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.unloadIconButton}
+                      onPress={handleUnloadImageModel}
+                      disabled={isUnloadingImage}
+                    >
+                      {isUnloadingImage ? (
+                        <ActivityIndicator size="small" color={COLORS.error} />
+                      ) : (
+                        <Icon name="x" size={18} color={COLORS.error} />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
             )}
+
+            {/* Text Models Section Title */}
+            <Text style={styles.sectionTitle}>Text Models</Text>
 
             {downloadedModels.length === 0 ? (
               <View style={styles.emptyState}>
@@ -318,5 +402,58 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textMuted,
     marginTop: 2,
+  },
+  loadedSection: {
+    marginBottom: 20,
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  loadedModelItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  loadedModelIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: COLORS.primary + '20',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  loadedModelInfo: {
+    flex: 1,
+  },
+  loadedModelType: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginBottom: 2,
+  },
+  loadedModelName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  unloadIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: COLORS.error + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
