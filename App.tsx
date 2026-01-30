@@ -96,9 +96,9 @@ function App() {
       // Background load active text model (non-blocking)
       if (currentActiveModelId) {
         const textModel = downloadedModels.find(m => m.id === currentActiveModelId);
-        if (textModel) {
+        if (textModel && textModel.filePath) {
           console.log('[App] Background loading text model:', textModel.name);
-          llmService.loadModel(textModel.path, textModel.mmprojPath || undefined)
+          llmService.loadModel(textModel.filePath, textModel.mmProjPath || undefined)
             .then(() => console.log('[App] Text model loaded successfully'))
             .catch(err => console.error('[App] Failed to load text model:', err));
         }
@@ -107,9 +107,9 @@ function App() {
       // Background load active image model (non-blocking)
       if (currentActiveImageModelId) {
         const imageModel = imageModels.find(m => m.id === currentActiveImageModelId);
-        if (imageModel) {
+        if (imageModel && imageModel.modelPath) {
           console.log('[App] Background loading image model:', imageModel.name);
-          onnxImageGeneratorService.loadModel(imageModel.path)
+          onnxImageGeneratorService.loadModel(imageModel.modelPath)
             .then(() => console.log('[App] Image model loaded successfully'))
             .catch(err => console.error('[App] Failed to load image model:', err));
         }
