@@ -296,11 +296,10 @@ export const VoiceRecordButton: React.FC<VoiceRecordButtonProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonWrapper: {
-    marginRight: 4,
   },
   button: {
     width: 36,
@@ -337,7 +336,6 @@ const styles = StyleSheet.create({
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 4,
   },
   loadingIndicator: {
     width: 8,
