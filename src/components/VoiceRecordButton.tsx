@@ -16,6 +16,8 @@ import { COLORS } from '../constants';
 interface VoiceRecordButtonProps {
   isRecording: boolean;
   isAvailable: boolean;
+  isModelLoading?: boolean;
+  isTranscribing?: boolean;
   partialResult: string;
   error?: string | null;
   disabled?: boolean;
@@ -29,6 +31,8 @@ const CANCEL_DISTANCE = 80;
 export const VoiceRecordButton: React.FC<VoiceRecordButtonProps> = ({
   isRecording,
   isAvailable,
+  isModelLoading,
+  isTranscribing,
   partialResult,
   error,
   disabled,
@@ -37,8 +41,26 @@ export const VoiceRecordButton: React.FC<VoiceRecordButtonProps> = ({
   onCancelRecording,
 }) => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const loadingAnim = useRef(new Animated.Value(0)).current;
   const cancelOffsetX = useRef(new Animated.Value(0)).current;
   const isDraggingToCancel = useRef(false);
+
+  // Loading animation for model loading or transcribing
+  useEffect(() => {
+    if (isModelLoading || (isTranscribing && !isRecording)) {
+      const spin = Animated.loop(
+        Animated.timing(loadingAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        })
+      );
+      spin.start();
+      return () => spin.stop();
+    } else {
+      loadingAnim.setValue(0);
+    }
+  }, [isModelLoading, isTranscribing, isRecording, loadingAnim]);
 
   // Use refs to avoid stale closures in PanResponder
   const callbacksRef = useRef({ onStartRecording, onStopRecording, onCancelRecording });
@@ -132,6 +154,56 @@ export const VoiceRecordButton: React.FC<VoiceRecordButtonProps> = ({
       [{ text: 'OK' }]
     );
   };
+
+  // Show loading state when model is loading
+  if (isModelLoading) {
+    const spin = loadingAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '360deg'],
+    });
+
+    return (
+      <View style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Animated.View
+            style={[
+              styles.button,
+              styles.buttonLoading,
+              { transform: [{ rotate: spin }] },
+            ]}
+          >
+            <View style={styles.loadingIndicator} />
+          </Animated.View>
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Show transcribing state (after recording stopped, processing audio)
+  if (isTranscribing && !isRecording) {
+    const spin = loadingAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '360deg'],
+    });
+
+    return (
+      <View style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Animated.View
+            style={[
+              styles.button,
+              styles.buttonTranscribing,
+              { transform: [{ rotate: spin }] },
+            ]}
+          >
+            <View style={styles.loadingIndicator} />
+          </Animated.View>
+          <Text style={styles.transcribingText}>Transcribing...</Text>
+        </View>
+      </View>
+    );
+  }
 
   // Show unavailable state instead of hiding
   if (!isAvailable) {
@@ -244,11 +316,44 @@ const styles = StyleSheet.create({
   buttonDisabled: {
     opacity: 0.5,
   },
+  buttonLoading: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    borderTopColor: 'transparent',
+  },
+  buttonTranscribing: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 2,
+    borderColor: COLORS.secondary,
+    borderTopColor: 'transparent',
+  },
   buttonUnavailable: {
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderStyle: 'dashed',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 4,
+  },
+  loadingIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.primary,
+  },
+  loadingText: {
+    fontSize: 11,
+    color: COLORS.primary,
+    marginLeft: 6,
+  },
+  transcribingText: {
+    fontSize: 11,
+    color: COLORS.secondary,
+    marginLeft: 6,
   },
   micIcon: {
     alignItems: 'center',

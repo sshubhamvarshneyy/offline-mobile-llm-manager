@@ -8,6 +8,7 @@ interface WhisperState {
   downloadedModelId: string | null;
   isDownloading: boolean;
   downloadProgress: number;
+  isModelLoading: boolean;
   isModelLoaded: boolean;
   error: string | null;
 
@@ -25,6 +26,7 @@ export const useWhisperStore = create<WhisperState>()(
       downloadedModelId: null,
       isDownloading: false,
       downloadProgress: 0,
+      isModelLoading: false,
       isModelLoaded: false,
       error: null,
 
@@ -54,19 +56,27 @@ export const useWhisperStore = create<WhisperState>()(
       },
 
       loadModel: async () => {
-        const { downloadedModelId } = get();
+        const { downloadedModelId, isModelLoading } = get();
         if (!downloadedModelId) {
           set({ error: 'No model downloaded' });
           return;
         }
 
+        // Prevent multiple simultaneous load attempts
+        if (isModelLoading) {
+          return;
+        }
+
+        set({ isModelLoading: true, error: null });
+
         try {
           const modelPath = whisperService.getModelPath(downloadedModelId);
           await whisperService.loadModel(modelPath);
-          set({ isModelLoaded: true, error: null });
+          set({ isModelLoaded: true, isModelLoading: false, error: null });
         } catch (error) {
           set({
             isModelLoaded: false,
+            isModelLoading: false,
             error: error instanceof Error ? error.message : 'Failed to load model',
           });
         }

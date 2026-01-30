@@ -47,6 +47,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const {
     isRecording,
     isModelLoaded,
+    isModelLoading,
+    isTranscribing,
     partialResult,
     finalResult,
     error,
@@ -226,6 +228,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         <VoiceRecordButton
           isRecording={isRecording}
           isAvailable={voiceAvailable}
+          isModelLoading={isModelLoading}
+          isTranscribing={isTranscribing}
           partialResult={partialResult}
           error={error}
           disabled={disabled || isGenerating}

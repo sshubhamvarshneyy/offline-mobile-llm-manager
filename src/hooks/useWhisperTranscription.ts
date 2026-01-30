@@ -6,7 +6,8 @@ import { useWhisperStore } from '../stores/whisperStore';
 export interface UseWhisperTranscriptionResult {
   isRecording: boolean;
   isModelLoaded: boolean;
-  isLoading: boolean;
+  isModelLoading: boolean;
+  isTranscribing: boolean;
   partialResult: string;
   finalResult: string;
   error: string | null;
@@ -18,14 +19,16 @@ export interface UseWhisperTranscriptionResult {
 
 export const useWhisperTranscription = (): UseWhisperTranscriptionResult => {
   const [isRecording, setIsRecording] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [partialResult, setPartialResult] = useState('');
   const [finalResult, setFinalResult] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [recordingTime, setRecordingTime] = useState(0);
   const isCancelled = useRef(false);
+  const transcribingStartTime = useRef<number | null>(null);
+  const pendingResult = useRef<string | null>(null);
 
-  const { downloadedModelId, isModelLoaded, loadModel } = useWhisperStore();
+  const { downloadedModelId, isModelLoaded, isModelLoading, loadModel } = useWhisperStore();
 
   // Auto-load model if downloaded but not loaded
   useEffect(() => {
@@ -43,9 +46,44 @@ export const useWhisperTranscription = (): UseWhisperTranscriptionResult => {
     autoLoadModel();
   }, [downloadedModelId, isModelLoaded, loadModel]);
 
+  // Minimum time to show transcribing state (ms)
+  const MIN_TRANSCRIBING_TIME = 600;
+
+  // Helper to finalize transcription with minimum display time
+  const finalizeTranscription = useCallback((text: string) => {
+    const startTime = transcribingStartTime.current;
+    const elapsed = startTime ? Date.now() - startTime : MIN_TRANSCRIBING_TIME;
+    const remaining = Math.max(0, MIN_TRANSCRIBING_TIME - elapsed);
+
+    if (remaining > 0) {
+      // Store result and wait for minimum time
+      pendingResult.current = text;
+      setTimeout(() => {
+        if (!isCancelled.current && pendingResult.current !== null) {
+          setFinalResult(pendingResult.current);
+          pendingResult.current = null;
+        }
+        setIsTranscribing(false);
+        setPartialResult('');
+        transcribingStartTime.current = null;
+      }, remaining);
+    } else {
+      // Minimum time already passed
+      setFinalResult(text);
+      setIsTranscribing(false);
+      setPartialResult('');
+      transcribingStartTime.current = null;
+    }
+  }, []);
+
   // Define stopRecording first since startRecording depends on it
   const stopRecording = useCallback(async () => {
     console.log('[Whisper] stopRecording called');
+    // Only set isRecording to false - keep isTranscribing true
+    // Mark the time we started the transcribing state
+    setIsRecording(false);
+    transcribingStartTime.current = Date.now();
+
     try {
       await whisperService.stopTranscription();
       // Haptic feedback
@@ -54,16 +92,19 @@ export const useWhisperTranscription = (): UseWhisperTranscriptionResult => {
       console.error('[Whisper] Stop error:', err);
       // Force reset on error
       whisperService.forceReset();
-    } finally {
-      setIsRecording(false);
-      setIsLoading(false);
+      // On error, also clear transcribing state
+      setIsTranscribing(false);
+      transcribingStartTime.current = null;
     }
   }, []);
 
   const clearResult = useCallback(() => {
     setFinalResult('');
     setPartialResult('');
+    setIsTranscribing(false);
     isCancelled.current = true;
+    pendingResult.current = null;
+    transcribingStartTime.current = null;
     // Also ensure recording is stopped
     if (whisperService.isCurrentlyTranscribing()) {
       whisperService.stopTranscription();
@@ -107,7 +148,7 @@ export const useWhisperTranscription = (): UseWhisperTranscriptionResult => {
       setPartialResult('');
       setFinalResult('');
       setIsRecording(true);
-      setIsLoading(true);
+      setIsTranscribing(true);
 
       console.log('[Whisper] Starting realtime transcription...');
 
@@ -123,15 +164,17 @@ export const useWhisperTranscription = (): UseWhisperTranscriptionResult => {
           if (result.text) {
             setPartialResult(result.text);
           }
-          setIsLoading(false);
         } else {
           // Recording finished - haptic feedback
           Vibration.vibrate(30);
           setIsRecording(false);
-          setIsLoading(false);
+          // Use finalizeTranscription to ensure minimum display time
           if (result.text && !isCancelled.current) {
-            setFinalResult(result.text);
+            finalizeTranscription(result.text);
+          } else {
+            setIsTranscribing(false);
             setPartialResult('');
+            transcribingStartTime.current = null;
           }
         }
       });
@@ -140,18 +183,19 @@ export const useWhisperTranscription = (): UseWhisperTranscriptionResult => {
       const errorMsg = err instanceof Error ? err.message : 'Failed to start recording';
       setError(errorMsg);
       setIsRecording(false);
-      setIsLoading(false);
+      setIsTranscribing(false);
       // Force reset whisper service state
       whisperService.forceReset();
       // Error haptic
       Vibration.vibrate([0, 50, 50, 50]);
     }
-  }, [downloadedModelId, loadModel, isRecording, stopRecording]);
+  }, [downloadedModelId, loadModel, isRecording, stopRecording, finalizeTranscription]);
 
   return {
     isRecording,
     isModelLoaded: isModelLoaded || whisperService.isModelLoaded(),
-    isLoading,
+    isModelLoading,
+    isTranscribing,
     partialResult,
     finalResult,
     error,
