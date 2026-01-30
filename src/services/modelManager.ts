@@ -1,8 +1,10 @@
 import RNFS from 'react-native-fs';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DownloadedModel, DownloadProgress, ModelFile, ModelCredibility } from '../types';
+import { DownloadedModel, DownloadProgress, ModelFile, ModelCredibility, BackgroundDownloadInfo } from '../types';
 import { APP_CONFIG, LMSTUDIO_AUTHORS, OFFICIAL_MODEL_AUTHORS, VERIFIED_QUANTIZERS } from '../constants';
 import { huggingFaceService } from './huggingface';
+import { backgroundDownloadService } from './backgroundDownloadService';
 
 const MODELS_STORAGE_KEY = '@local_llm/downloaded_models';
 
@@ -10,9 +12,16 @@ type DownloadProgressCallback = (progress: DownloadProgress) => void;
 type DownloadCompleteCallback = (model: DownloadedModel) => void;
 type DownloadErrorCallback = (error: Error) => void;
 
+// Callback for background download metadata persistence
+type BackgroundDownloadMetadataCallback = (
+  downloadId: number,
+  info: { modelId: string; fileName: string; quantization: string; author: string; totalBytes: number } | null
+) => void;
+
 class ModelManager {
   private modelsDir: string;
   private downloadJobs: Map<string, { jobId: number; cancel: () => void }> = new Map();
+  private backgroundDownloadMetadataCallback: BackgroundDownloadMetadataCallback | null = null;
 
   constructor() {
     this.modelsDir = `${RNFS.DocumentDirectoryPath}/${APP_CONFIG.modelStorageDir}`;
@@ -181,6 +190,247 @@ class ModelManager {
 
   isDownloading(modelId: string, fileName: string): boolean {
     return this.downloadJobs.has(`${modelId}/${fileName}`);
+  }
+
+  /**
+   * Set callback for persisting background download metadata to app store
+   */
+  setBackgroundDownloadMetadataCallback(callback: BackgroundDownloadMetadataCallback): void {
+    this.backgroundDownloadMetadataCallback = callback;
+  }
+
+  /**
+   * Check if background downloads are supported (Android only)
+   */
+  isBackgroundDownloadSupported(): boolean {
+    return backgroundDownloadService.isAvailable();
+  }
+
+  /**
+   * Start a background download using Android's DownloadManager.
+   * The download will continue even if the app is killed.
+   */
+  async downloadModelBackground(
+    modelId: string,
+    file: ModelFile,
+    onProgress?: DownloadProgressCallback,
+    onComplete?: DownloadCompleteCallback,
+    onError?: DownloadErrorCallback
+  ): Promise<BackgroundDownloadInfo> {
+    if (!this.isBackgroundDownloadSupported()) {
+      throw new Error('Background downloads not supported on this platform');
+    }
+
+    await this.initialize();
+
+    const localPath = `${this.modelsDir}/${file.name}`;
+
+    // Check if file already exists
+    const exists = await RNFS.exists(localPath);
+    if (exists) {
+      const model = await this.addDownloadedModel(modelId, file, localPath);
+      onComplete?.(model);
+      return {
+        downloadId: -1,
+        fileName: file.name,
+        modelId,
+        status: 'completed',
+        bytesDownloaded: file.size,
+        totalBytes: file.size,
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+      };
+    }
+
+    const downloadUrl = huggingFaceService.getDownloadUrl(modelId, file.name);
+    const author = modelId.split('/')[0] || 'Unknown';
+
+    // Start background download
+    const downloadInfo = await backgroundDownloadService.startDownload({
+      url: downloadUrl,
+      fileName: file.name,
+      modelId,
+      title: `Downloading ${file.name}`,
+      description: `${modelId} - ${file.quantization}`,
+      totalBytes: file.size,
+    });
+
+    // Persist metadata for app store
+    this.backgroundDownloadMetadataCallback?.(downloadInfo.downloadId, {
+      modelId,
+      fileName: file.name,
+      quantization: file.quantization,
+      author,
+      totalBytes: file.size,
+    });
+
+    // Set up event listeners
+    const removeProgressListener = backgroundDownloadService.onProgress(
+      downloadInfo.downloadId,
+      (event) => {
+        const progress: DownloadProgress = {
+          modelId,
+          fileName: file.name,
+          bytesDownloaded: event.bytesDownloaded,
+          totalBytes: event.totalBytes || file.size,
+          progress: event.totalBytes > 0 ? event.bytesDownloaded / event.totalBytes : 0,
+        };
+        onProgress?.(progress);
+      }
+    );
+
+    const removeCompleteListener = backgroundDownloadService.onComplete(
+      downloadInfo.downloadId,
+      async (event) => {
+        removeProgressListener();
+        removeCompleteListener();
+        removeErrorListener();
+
+        try {
+          // Move file to models directory
+          const finalPath = await backgroundDownloadService.moveCompletedDownload(
+            event.downloadId,
+            localPath
+          );
+
+          // Add to downloaded models list
+          const model = await this.addDownloadedModel(modelId, file, finalPath);
+
+          // Clear metadata
+          this.backgroundDownloadMetadataCallback?.(event.downloadId, null);
+
+          onComplete?.(model);
+        } catch (error) {
+          console.error('Error finalizing background download:', error);
+          onError?.(error as Error);
+        }
+      }
+    );
+
+    const removeErrorListener = backgroundDownloadService.onError(
+      downloadInfo.downloadId,
+      (event) => {
+        removeProgressListener();
+        removeCompleteListener();
+        removeErrorListener();
+
+        // Clear metadata
+        this.backgroundDownloadMetadataCallback?.(event.downloadId, null);
+
+        onError?.(new Error(event.reason || 'Download failed'));
+      }
+    );
+
+    return downloadInfo;
+  }
+
+  /**
+   * Cancel a background download
+   */
+  async cancelBackgroundDownload(downloadId: number): Promise<void> {
+    if (!this.isBackgroundDownloadSupported()) {
+      throw new Error('Background downloads not supported on this platform');
+    }
+
+    await backgroundDownloadService.cancelDownload(downloadId);
+    this.backgroundDownloadMetadataCallback?.(downloadId, null);
+  }
+
+  /**
+   * Sync background downloads completed while app was dead.
+   * Call this on app startup.
+   */
+  async syncBackgroundDownloads(
+    persistedDownloads: Record<number, {
+      modelId: string;
+      fileName: string;
+      quantization: string;
+      author: string;
+      totalBytes: number;
+    }>,
+    clearDownloadCallback: (downloadId: number) => void
+  ): Promise<DownloadedModel[]> {
+    if (!this.isBackgroundDownloadSupported()) {
+      return [];
+    }
+
+    await this.initialize();
+
+    const completedModels: DownloadedModel[] = [];
+    const activeDownloads = await backgroundDownloadService.getActiveDownloads();
+
+    for (const download of activeDownloads) {
+      const metadata = persistedDownloads[download.downloadId];
+      if (!metadata) {
+        continue;
+      }
+
+      if (download.status === 'completed') {
+        try {
+          const localPath = `${this.modelsDir}/${metadata.fileName}`;
+
+          // Move file to models directory
+          await backgroundDownloadService.moveCompletedDownload(
+            download.downloadId,
+            localPath
+          );
+
+          // Create model file info for addDownloadedModel
+          const fileInfo: ModelFile = {
+            name: metadata.fileName,
+            size: metadata.totalBytes,
+            quantization: metadata.quantization,
+            downloadUrl: '',
+          };
+
+          const model = await this.addDownloadedModel(
+            metadata.modelId,
+            fileInfo,
+            localPath
+          );
+
+          completedModels.push(model);
+          clearDownloadCallback(download.downloadId);
+        } catch (error) {
+          console.error('Error syncing completed download:', error);
+        }
+      } else if (download.status === 'failed') {
+        // Clear failed downloads
+        clearDownloadCallback(download.downloadId);
+      }
+      // Running/pending downloads are left as-is for the UI to track
+    }
+
+    return completedModels;
+  }
+
+  /**
+   * Get active background downloads with their current status
+   */
+  async getActiveBackgroundDownloads(): Promise<BackgroundDownloadInfo[]> {
+    if (!this.isBackgroundDownloadSupported()) {
+      return [];
+    }
+
+    return await backgroundDownloadService.getActiveDownloads();
+  }
+
+  /**
+   * Start or resume polling for background download progress
+   */
+  startBackgroundDownloadPolling(): void {
+    if (this.isBackgroundDownloadSupported()) {
+      backgroundDownloadService.startProgressPolling();
+    }
+  }
+
+  /**
+   * Stop polling for background download progress
+   */
+  stopBackgroundDownloadPolling(): void {
+    if (this.isBackgroundDownloadSupported()) {
+      backgroundDownloadService.stopProgressPolling();
+    }
   }
 
   private determineCredibility(author: string): ModelCredibility {

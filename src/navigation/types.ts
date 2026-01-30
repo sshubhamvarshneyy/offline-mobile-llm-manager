@@ -2,6 +2,7 @@ export type RootStackParamList = {
   Onboarding: undefined;
   ModelDownload: undefined;
   Main: undefined;
+  DownloadManager: undefined;
 };
 
 // Tab navigator params

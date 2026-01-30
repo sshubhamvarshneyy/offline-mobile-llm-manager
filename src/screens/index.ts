@@ -11,3 +11,4 @@ export { ProjectEditScreen } from './ProjectEditScreen';
 export { ChatsListScreen } from './ChatsListScreen';
 export { LockScreen } from './LockScreen';
 export { PassphraseSetupScreen } from './PassphraseSetupScreen';
+export { DownloadManagerScreen } from './DownloadManagerScreen';

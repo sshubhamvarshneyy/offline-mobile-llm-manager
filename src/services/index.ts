@@ -7,3 +7,4 @@ export { voiceService } from './voiceService';
 export { authService } from './authService';
 export { whisperService, WHISPER_MODELS } from './whisperService';
 export type { TranscriptionResult, TranscriptionCallback } from './whisperService';
+export { backgroundDownloadService } from './backgroundDownloadService';

@@ -16,6 +16,7 @@ import {
   ChatsListScreen,
   ProjectDetailScreen,
   ProjectEditScreen,
+  DownloadManagerScreen,
 } from '../screens';
 import {
   RootStackParamList,
@@ -150,6 +151,11 @@ export const AppNavigator: React.FC = () => {
       <RootStack.Screen name="Onboarding" component={OnboardingScreen} />
       <RootStack.Screen name="ModelDownload" component={ModelDownloadScreen} />
       <RootStack.Screen name="Main" component={MainTabs} />
+      <RootStack.Screen
+        name="DownloadManager"
+        component={DownloadManagerScreen}
+        options={{ presentation: 'modal' }}
+      />
     </RootStack.Navigator>
   );
 };

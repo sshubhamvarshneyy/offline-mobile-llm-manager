@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DeviceInfo, DownloadedModel, ModelRecommendation } from '../types';
+import { DeviceInfo, DownloadedModel, ModelRecommendation, BackgroundDownloadInfo } from '../types';
 
 interface AppState {
   // Onboarding
@@ -39,6 +39,23 @@ interface AppState {
     bytesDownloaded: number;
     totalBytes: number;
   } | null) => void;
+
+  // Background downloads (Android)
+  activeBackgroundDownloads: Record<number, {
+    modelId: string;
+    fileName: string;
+    quantization: string;
+    author: string;
+    totalBytes: number;
+  }>;
+  setBackgroundDownload: (downloadId: number, info: {
+    modelId: string;
+    fileName: string;
+    quantization: string;
+    author: string;
+    totalBytes: number;
+  } | null) => void;
+  clearBackgroundDownloads: () => void;
 
   // Settings
   settings: {
@@ -106,6 +123,24 @@ export const useAppStore = create<AppState>()(
           };
         }),
 
+      // Background downloads (Android)
+      activeBackgroundDownloads: {},
+      setBackgroundDownload: (downloadId, info) =>
+        set((state) => {
+          if (info === null) {
+            const { [downloadId]: _, ...rest } = state.activeBackgroundDownloads;
+            return { activeBackgroundDownloads: rest };
+          }
+          return {
+            activeBackgroundDownloads: {
+              ...state.activeBackgroundDownloads,
+              [downloadId]: info,
+            },
+          };
+        }),
+      clearBackgroundDownloads: () =>
+        set({ activeBackgroundDownloads: {} }),
+
       // Settings
       settings: {
         systemPrompt: 'You are a helpful AI assistant running locally on the user\'s device. Be concise and helpful.',
@@ -130,6 +165,7 @@ export const useAppStore = create<AppState>()(
         hasCompletedOnboarding: state.hasCompletedOnboarding,
         activeModelId: state.activeModelId,
         settings: state.settings,
+        activeBackgroundDownloads: state.activeBackgroundDownloads,
       }),
     }
   )

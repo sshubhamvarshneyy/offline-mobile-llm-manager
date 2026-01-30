@@ -13,11 +13,15 @@ import {
   Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import Icon from 'react-native-vector-icons/Feather';
 import { Card, ModelCard, Button } from '../components';
 import { COLORS, RECOMMENDED_MODELS, CREDIBILITY_LABELS } from '../constants';
 import { useAppStore } from '../stores';
 import { huggingFaceService, modelManager, hardwareService } from '../services';
 import { ModelInfo, ModelFile, DownloadedModel, ModelSource } from '../types';
+import { RootStackParamList } from '../navigation/types';
 
 type CredibilityFilter = 'all' | ModelSource;
 type ModelTypeFilter = 'all' | 'text' | 'vision' | 'code' | 'image-gen';
@@ -38,7 +42,10 @@ const MODEL_TYPE_OPTIONS: { key: ModelTypeFilter; label: string }[] = [
   { key: 'image-gen', label: 'Image Gen' },
 ];
 
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
 export const ModelsScreen: React.FC = () => {
+  const navigation = useNavigation<NavigationProp>();
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -361,10 +368,26 @@ export const ModelsScreen: React.FC = () => {
     );
   }
 
+  // Count of active downloads for badge
+  const activeDownloadCount = Object.keys(downloadProgress).length;
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>Browse Models</Text>
+        <TouchableOpacity
+          style={styles.downloadManagerButton}
+          onPress={() => navigation.navigate('DownloadManager')}
+        >
+          <Icon name="download" size={22} color={COLORS.text} />
+          {(activeDownloadCount > 0 || downloadedModels.length > 0) && (
+            <View style={styles.downloadBadge}>
+              <Text style={styles.downloadBadgeText}>
+                {activeDownloadCount > 0 ? activeDownloadCount : downloadedModels.length}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <View style={styles.searchContainer}>
@@ -517,7 +540,27 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.text,
     flex: 1,
-    textAlign: 'center',
+  },
+  downloadManagerButton: {
+    padding: 8,
+    position: 'relative',
+  },
+  downloadBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: COLORS.primary,
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  downloadBadgeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: COLORS.text,
   },
   searchContainer: {
     flexDirection: 'row',

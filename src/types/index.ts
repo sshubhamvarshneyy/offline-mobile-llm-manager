@@ -197,6 +197,28 @@ export interface Project {
   updatedAt: string;
 }
 
+// Background download types
+export type BackgroundDownloadStatus =
+  | 'pending'
+  | 'running'
+  | 'paused'
+  | 'completed'
+  | 'failed'
+  | 'unknown';
+
+export interface BackgroundDownloadInfo {
+  downloadId: number;
+  fileName: string;
+  modelId: string;
+  status: BackgroundDownloadStatus;
+  bytesDownloaded: number;
+  totalBytes: number;
+  localUri?: string;
+  startedAt: number;
+  completedAt?: number;
+  failureReason?: string;
+}
+
 // App state types
 export type AppScreen =
   | 'onboarding'
