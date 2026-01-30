@@ -91,9 +91,11 @@ interface AppState {
   isGeneratingImage: boolean;
   imageGenerationProgress: { step: number; totalSteps: number } | null;
   imageGenerationStatus: string | null;
+  imagePreviewPath: string | null;
   setIsGeneratingImage: (generating: boolean) => void;
   setImageGenerationProgress: (progress: { step: number; totalSteps: number } | null) => void;
   setImageGenerationStatus: (status: string | null) => void;
+  setImagePreviewPath: (path: string | null) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -213,9 +215,11 @@ export const useAppStore = create<AppState>()(
       isGeneratingImage: false,
       imageGenerationProgress: null,
       imageGenerationStatus: null,
+      imagePreviewPath: null,
       setIsGeneratingImage: (generating) => set({ isGeneratingImage: generating }),
       setImageGenerationProgress: (progress) => set({ imageGenerationProgress: progress }),
       setImageGenerationStatus: (status) => set({ imageGenerationStatus: status }),
+      setImagePreviewPath: (path) => set({ imagePreviewPath: path }),
     }),
     {
       name: 'local-llm-app-storage',

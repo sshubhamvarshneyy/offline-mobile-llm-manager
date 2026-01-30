@@ -70,9 +70,11 @@ export const ChatScreen: React.FC = () => {
     isGeneratingImage,
     imageGenerationProgress,
     imageGenerationStatus,
+    imagePreviewPath,
     setIsGeneratingImage,
     setImageGenerationProgress,
     setImageGenerationStatus,
+    setImagePreviewPath,
   } = useAppStore();
   const {
     activeConversationId,
@@ -367,6 +369,7 @@ export const ChatScreen: React.FC = () => {
 
     setIsGeneratingImage(true);
     setImageGenerationStatus('Starting image generation...');
+    setImagePreviewPath(null);
 
     // Track image generation start time
     const imageGenStartTime = Date.now();
@@ -377,6 +380,7 @@ export const ChatScreen: React.FC = () => {
           prompt,
           steps: settings.imageSteps || 30,
           guidanceScale: settings.imageGuidanceScale || 7.5,
+          previewInterval: 5,
         },
         (progress) => {
           setImageGenerationProgress({
@@ -384,6 +388,11 @@ export const ChatScreen: React.FC = () => {
             totalSteps: progress.totalSteps,
           });
           setImageGenerationStatus(`Generating image (${progress.step}/${progress.totalSteps})...`);
+        },
+        (preview) => {
+          // Update preview image
+          setImagePreviewPath(`file://${preview.previewPath}`);
+          setImageGenerationStatus(`Refining image (${preview.step}/${preview.totalSteps})...`);
         }
       );
 
@@ -418,6 +427,7 @@ export const ChatScreen: React.FC = () => {
       setIsGeneratingImage(false);
       setImageGenerationProgress(null);
       setImageGenerationStatus(null);
+      setImagePreviewPath(null);
       setCurrentImageMode('auto');
     }
   };
@@ -952,16 +962,26 @@ export const ChatScreen: React.FC = () => {
           />
         )}
 
-        {/* Image generation progress indicator */}
+        {/* Image generation progress indicator with preview */}
         {isGeneratingImage && (
           <View style={styles.imageProgressContainer}>
             <View style={styles.imageProgressCard}>
+              {/* Preview image */}
+              {imagePreviewPath && (
+                <Image
+                  source={{ uri: imagePreviewPath }}
+                  style={styles.imagePreview}
+                  resizeMode="cover"
+                />
+              )}
               <View style={styles.imageProgressHeader}>
                 <View style={styles.imageProgressIconContainer}>
                   <Icon name="image" size={18} color={COLORS.primary} />
                 </View>
                 <View style={styles.imageProgressInfo}>
-                  <Text style={styles.imageProgressTitle}>Generating Image</Text>
+                  <Text style={styles.imageProgressTitle}>
+                    {imagePreviewPath ? 'Refining Image' : 'Generating Image'}
+                  </Text>
                   <Text style={styles.imageProgressStatus} numberOfLines={1}>
                     {imageGenerationStatus || 'Initializing...'}
                   </Text>
@@ -971,6 +991,12 @@ export const ChatScreen: React.FC = () => {
                     {imageGenerationProgress.step}/{imageGenerationProgress.totalSteps}
                   </Text>
                 )}
+                <TouchableOpacity
+                  style={styles.imageStopButton}
+                  onPress={handleStop}
+                >
+                  <Icon name="x" size={16} color={COLORS.error} />
+                </TouchableOpacity>
               </View>
               {imageGenerationProgress && (
                 <View style={styles.imageProgressBarContainer}>
@@ -992,8 +1018,8 @@ export const ChatScreen: React.FC = () => {
         <ChatInput
           onSend={handleSend}
           onStop={handleStop}
-          disabled={!llmService.isModelLoaded() || isGeneratingImage}
-          isGenerating={isStreaming || isGeneratingImage}
+          disabled={!llmService.isModelLoaded()}
+          isGenerating={isStreaming}
           supportsVision={supportsVision}
           conversationId={activeConversationId}
           imageModelLoaded={imageModelLoaded}
@@ -1001,13 +1027,11 @@ export const ChatScreen: React.FC = () => {
           onOpenSettings={() => setShowSettingsPanel(true)}
           activeImageModelName={activeImageModel?.name || null}
           placeholder={
-            isGeneratingImage
-              ? 'Generating image...'
-              : llmService.isModelLoaded()
-                ? supportsVision
-                  ? 'Type a message or add an image...'
-                  : 'Type a message...'
-                : 'Loading model...'
+            llmService.isModelLoaded()
+              ? supportsVision
+                ? 'Type a message or add an image...'
+                : 'Type a message...'
+              : 'Loading model...'
           }
         />
       </KeyboardAvoidingView>
@@ -1716,7 +1740,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: COLORS.primary,
-    minWidth: 45,
-    textAlign: 'right',
+    marginRight: 8,
+  },
+  imagePreview: {
+    width: '100%',
+    height: 150,
+    borderRadius: 8,
+    marginBottom: 10,
+    backgroundColor: COLORS.surfaceLight,
+  },
+  imageStopButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: COLORS.error + '20',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

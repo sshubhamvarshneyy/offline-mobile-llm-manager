@@ -8,6 +8,7 @@ import {
 const { ONNXImageGeneratorModule } = NativeModules;
 
 type ProgressCallback = (progress: ImageGenerationProgress) => void;
+type PreviewCallback = (preview: { previewPath: string; step: number; totalSteps: number }) => void;
 type CompleteCallback = (image: GeneratedImage) => void;
 type ErrorCallback = (error: Error) => void;
 
@@ -18,6 +19,7 @@ type ErrorCallback = (error: Error) => void;
 class ONNXImageGeneratorService {
   private eventEmitter: NativeEventEmitter | null = null;
   private progressListener: any = null;
+  private previewListener: any = null;
   private completeListener: any = null;
   private errorListener: any = null;
 
@@ -62,8 +64,9 @@ class ONNXImageGeneratorService {
   }
 
   async generateImage(
-    params: ImageGenerationParams,
+    params: ImageGenerationParams & { previewInterval?: number },
     onProgress?: ProgressCallback,
+    onPreview?: PreviewCallback,
     onComplete?: CompleteCallback,
     onError?: ErrorCallback
   ): Promise<GeneratedImage> {
@@ -80,6 +83,15 @@ class ONNXImageGeneratorService {
           'ONNXImageProgress',
           (data: ImageGenerationProgress) => {
             onProgress(data);
+          }
+        );
+      }
+
+      if (onPreview) {
+        this.previewListener = this.eventEmitter.addListener(
+          'ONNXImagePreview',
+          (data: { previewPath: string; step: number; totalSteps: number }) => {
+            onPreview(data);
           }
         );
       }
@@ -112,6 +124,7 @@ class ONNXImageGeneratorService {
         seed: params.seed,
         width: params.width || 512,
         height: params.height || 512,
+        previewInterval: params.previewInterval ?? 5,
       });
 
       return {
@@ -185,6 +198,10 @@ class ONNXImageGeneratorService {
     if (this.progressListener) {
       this.progressListener.remove();
       this.progressListener = null;
+    }
+    if (this.previewListener) {
+      this.previewListener.remove();
+      this.previewListener = null;
     }
     if (this.completeListener) {
       this.completeListener.remove();

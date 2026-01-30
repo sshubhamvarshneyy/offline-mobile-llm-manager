@@ -24,6 +24,7 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
         private const val TAG = "ONNXImageGenerator"
         private const val MODULE_NAME = "ONNXImageGeneratorModule"
         private const val EVENT_PROGRESS = "ONNXImageProgress"
+        private const val EVENT_PREVIEW = "ONNXImagePreview"
         private const val EVENT_COMPLETE = "ONNXImageComplete"
         private const val EVENT_ERROR = "ONNXImageError"
 
@@ -31,6 +32,9 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
         private const val LATENT_CHANNELS = 4
         private const val LATENT_SCALE = 8
         private const val VAE_SCALE_FACTOR = 0.18215f
+
+        // Preview settings
+        private const val DEFAULT_PREVIEW_INTERVAL = 5
     }
 
     private var ortEnv: OrtEnvironment? = null
@@ -196,6 +200,7 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
         val seed = if (params.hasKey("seed")) params.getInt("seed").toLong() else System.currentTimeMillis()
         val width = if (params.hasKey("width")) params.getInt("width") else 512
         val height = if (params.hasKey("height")) params.getInt("height") else 512
+        val previewInterval = if (params.hasKey("previewInterval")) params.getInt("previewInterval") else DEFAULT_PREVIEW_INTERVAL
 
         isGenerating = true
         shouldCancel = false
@@ -266,6 +271,18 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
 
                     // Send progress
                     sendProgress(stepIndex + 1, steps)
+
+                    // Generate and send preview at intervals (but not on first or last step)
+                    if (previewInterval > 0 && stepIndex > 0 && stepIndex < steps - 1 && (stepIndex + 1) % previewInterval == 0) {
+                        try {
+                            val previewImage = decodeLatents(latents, height, width)
+                            val previewPath = savePreviewImage(previewImage, stepIndex + 1)
+                            sendPreview(previewPath, stepIndex + 1, steps)
+                            previewImage.recycle()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to generate preview at step ${stepIndex + 1}", e)
+                        }
+                    }
                 }
 
                 Log.d(TAG, "Final latents - min: ${latents.minOrNull()}, max: ${latents.maxOrNull()}, mean: ${latents.average()}")
@@ -326,6 +343,32 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
             putDouble("progress", step.toDouble() / totalSteps)
         }
         sendEvent(EVENT_PROGRESS, progressMap)
+    }
+
+    private fun sendPreview(previewPath: String, step: Int, totalSteps: Int) {
+        val previewMap = Arguments.createMap().apply {
+            putString("previewPath", previewPath)
+            putInt("step", step)
+            putInt("totalSteps", totalSteps)
+            putDouble("progress", step.toDouble() / totalSteps)
+        }
+        sendEvent(EVENT_PREVIEW, previewMap)
+    }
+
+    private fun savePreviewImage(bitmap: Bitmap, step: Int): String {
+        val previewDir = File(reactApplicationContext.cacheDir, "image_previews")
+        if (!previewDir.exists()) {
+            previewDir.mkdirs()
+        }
+        // Clean old previews
+        previewDir.listFiles()?.forEach { it.delete() }
+
+        val previewFile = File(previewDir, "preview_step_$step.jpg")
+        FileOutputStream(previewFile).use { outputStream ->
+            // Use JPEG for faster encoding of previews
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+        }
+        return previewFile.absolutePath
     }
 
     private fun encodeText(tokenIds: IntArray): FloatArray {
