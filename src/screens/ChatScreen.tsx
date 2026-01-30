@@ -401,8 +401,9 @@ export const ChatScreen: React.FC = () => {
           setImageGenerationStatus(`Generating image (${progress.step}/${progress.totalSteps})...`);
         },
         (preview) => {
-          // Update preview image
-          setImagePreviewPath(`file://${preview.previewPath}`);
+          // Update preview image with cache-busting timestamp
+          // React Native Image caches by URI, so we need unique URI for each update
+          setImagePreviewPath(`file://${preview.previewPath}?t=${Date.now()}`);
           setImageGenerationStatus(`Refining image (${preview.step}/${preview.totalSteps})...`);
         }
       );
