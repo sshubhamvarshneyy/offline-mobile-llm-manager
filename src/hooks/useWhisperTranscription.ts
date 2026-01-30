@@ -50,6 +50,9 @@ export const useWhisperTranscription = (): UseWhisperTranscriptionResult => {
   const MIN_TRANSCRIBING_TIME = 600;
 
   // Helper to finalize transcription with minimum display time
+  // NOTE: This does NOT clear isTranscribing - that's done by clearResult()
+  // which is called from ChatInput after the text is added to the input box.
+  // This keeps the loader visible until text actually appears.
   const finalizeTranscription = useCallback((text: string) => {
     const startTime = transcribingStartTime.current;
     const elapsed = startTime ? Date.now() - startTime : MIN_TRANSCRIBING_TIME;
@@ -62,29 +65,49 @@ export const useWhisperTranscription = (): UseWhisperTranscriptionResult => {
         if (!isCancelled.current && pendingResult.current !== null) {
           setFinalResult(pendingResult.current);
           pendingResult.current = null;
+        } else {
+          // If cancelled, clear the transcribing state
+          setIsTranscribing(false);
         }
-        setIsTranscribing(false);
         setPartialResult('');
         transcribingStartTime.current = null;
       }, remaining);
     } else {
-      // Minimum time already passed
+      // Minimum time already passed - set result, let clearResult() clear isTranscribing
       setFinalResult(text);
-      setIsTranscribing(false);
       setPartialResult('');
       transcribingStartTime.current = null;
     }
   }, []);
 
+  // Extra recording time after user releases button (ms)
+  // Whisper needs trailing audio/silence to properly process speech
+  const TRAILING_RECORD_TIME = 2500;
+
   // Define stopRecording first since startRecording depends on it
   const stopRecording = useCallback(async () => {
     console.log('[Whisper] stopRecording called');
-    // Only set isRecording to false - keep isTranscribing true
-    // Mark the time we started the transcribing state
+
+    // Immediately update UI to show "Transcribing..." state
+    // But keep recording in background for better accuracy
     setIsRecording(false);
     transcribingStartTime.current = Date.now();
 
     try {
+      // Continue recording for a bit longer to capture trailing audio
+      // This helps Whisper process the speech more accurately
+      // User sees "Transcribing..." during this time
+      console.log('[Whisper] Capturing trailing audio for', TRAILING_RECORD_TIME, 'ms...');
+      await new Promise(resolve => setTimeout(resolve, TRAILING_RECORD_TIME));
+
+      // Check if cancelled during the wait
+      if (isCancelled.current) {
+        console.log('[Whisper] Cancelled during trailing capture');
+        whisperService.forceReset();
+        return;
+      }
+
+      // Now actually stop the transcription
       await whisperService.stopTranscription();
       // Haptic feedback
       Vibration.vibrate(30);
