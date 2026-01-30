@@ -33,8 +33,8 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
         private const val LATENT_SCALE = 8
         private const val VAE_SCALE_FACTOR = 0.18215f
 
-        // Preview settings
-        private const val DEFAULT_PREVIEW_INTERVAL = 5
+        // Preview settings - show updates every 2 steps for faster feedback
+        private const val DEFAULT_PREVIEW_INTERVAL = 2
     }
 
     private var ortEnv: OrtEnvironment? = null
@@ -42,7 +42,7 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
     private var unet: OrtSession? = null
     private var vaeDecoder: OrtSession? = null
     private var tokenizer: CLIPTokenizer? = null
-    private var scheduler: LMSDiscreteScheduler? = null
+    private var scheduler: EulerDiscreteScheduler? = null
 
     private var currentModelPath: String? = null
     private var isGenerating = false
@@ -78,6 +78,19 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
         promise.resolve(currentModelPath)
     }
 
+    /**
+     * Find model file - supports both .ort and .onnx formats
+     */
+    private fun findModelFile(dir: File, componentName: String): File? {
+        val ortFile = File(dir, "$componentName/model.ort")
+        if (ortFile.exists()) return ortFile
+
+        val onnxFile = File(dir, "$componentName/model.onnx")
+        if (onnxFile.exists()) return onnxFile
+
+        return null
+    }
+
     @ReactMethod
     fun loadModel(modelPath: String, promise: Promise) {
         coroutineScope.launch {
@@ -88,16 +101,16 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
                     return@launch
                 }
 
-                // Verify required files exist
-                val textEncoderPath = File(modelDir, "text_encoder/model.ort")
-                val unetPath = File(modelDir, "unet/model.ort")
-                val vaeDecoderPath = File(modelDir, "vae_decoder/model.ort")
+                // Verify required files exist (support both .ort and .onnx formats)
+                val textEncoderPath = findModelFile(modelDir, "text_encoder")
+                val unetPath = findModelFile(modelDir, "unet")
+                val vaeDecoderPath = findModelFile(modelDir, "vae_decoder")
                 val tokenizerPath = File(modelDir, "tokenizer")
 
                 val missingFiles = mutableListOf<String>()
-                if (!textEncoderPath.exists()) missingFiles.add("text_encoder/model.ort")
-                if (!unetPath.exists()) missingFiles.add("unet/model.ort")
-                if (!vaeDecoderPath.exists()) missingFiles.add("vae_decoder/model.ort")
+                if (textEncoderPath == null) missingFiles.add("text_encoder/model.ort or model.onnx")
+                if (unetPath == null) missingFiles.add("unet/model.ort or model.onnx")
+                if (vaeDecoderPath == null) missingFiles.add("vae_decoder/model.ort or model.onnx")
                 if (!tokenizerPath.exists()) missingFiles.add("tokenizer/")
 
                 if (missingFiles.isNotEmpty()) {
@@ -117,35 +130,46 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
                 }
 
                 Log.d(TAG, "Loading ONNX models from: $modelPath")
+                val loadStart = System.currentTimeMillis()
 
                 // Initialize ONNX Runtime environment
                 if (ortEnv == null) {
                     ortEnv = OrtEnvironment.getEnvironment()
                 }
 
-                // Configure session options for mobile
+                // Configure session options for CPU (NNAPI doesn't work with SD models)
                 val sessionOptions = OrtSession.SessionOptions().apply {
-                    // Use CPU provider (most compatible)
-                    // NNAPI can be added for supported devices but may have compatibility issues
                     setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                    setIntraOpNumThreads(4)
+                    // Use all available threads for CPU (8 core device)
+                    setIntraOpNumThreads(8)
+                    setInterOpNumThreads(4)
+                    // Enable memory optimizations
+                    setMemoryPatternOptimization(true)
                 }
 
-                // Load models
-                Log.d(TAG, "Loading text encoder...")
+                // Load models with timing (paths already verified above)
+                var modelLoadTime = System.currentTimeMillis()
+                Log.d(TAG, "Loading text encoder from: ${textEncoderPath!!.absolutePath}")
                 textEncoder = ortEnv!!.createSession(textEncoderPath.absolutePath, sessionOptions)
+                Log.d(TAG, "Text encoder loaded in ${System.currentTimeMillis() - modelLoadTime}ms")
 
-                Log.d(TAG, "Loading UNet...")
+                modelLoadTime = System.currentTimeMillis()
+                Log.d(TAG, "Loading UNet from: ${unetPath!!.absolutePath}")
                 unet = ortEnv!!.createSession(unetPath.absolutePath, sessionOptions)
+                Log.d(TAG, "UNet loaded in ${System.currentTimeMillis() - modelLoadTime}ms")
 
-                Log.d(TAG, "Loading VAE decoder...")
+                modelLoadTime = System.currentTimeMillis()
+                Log.d(TAG, "Loading VAE decoder from: ${vaeDecoderPath!!.absolutePath}")
                 vaeDecoder = ortEnv!!.createSession(vaeDecoderPath.absolutePath, sessionOptions)
+                Log.d(TAG, "VAE decoder loaded in ${System.currentTimeMillis() - modelLoadTime}ms")
+
+                Log.d(TAG, "All models loaded in ${System.currentTimeMillis() - loadStart}ms")
 
                 Log.d(TAG, "Loading tokenizer...")
                 tokenizer = CLIPTokenizer(tokenizerPath.absolutePath)
 
-                // Initialize scheduler
-                scheduler = LMSDiscreteScheduler()
+                // Initialize scheduler (Euler is simpler and more reliable)
+                scheduler = EulerDiscreteScheduler()
 
                 currentModelPath = modelPath
                 Log.d(TAG, "All models loaded successfully")
@@ -244,19 +268,28 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
                 Log.d(TAG, "Timesteps: ${timesteps.take(5).toList()}...")
                 Log.d(TAG, "Initial latents - min: ${latents.minOrNull()}, max: ${latents.maxOrNull()}, mean: ${latents.average()}")
 
+                var totalUnetTime = 0L
                 for ((stepIndex, timestep) in timesteps.withIndex()) {
                     if (shouldCancel) {
                         throw Exception("Generation cancelled")
                     }
 
-                    // Duplicate latents for classifier-free guidance
-                    val latentModelInput = duplicateLatents(latents)
+                    val stepStart = System.currentTimeMillis()
 
-                    // Predict noise
-                    val noisePred = predictNoise(latentModelInput, timestep.toLong(), batchEmbeddings)
+                    // Scale latents for model input (important for Euler scheduler)
+                    val scaledLatents = scheduler!!.scaleModelInput(latents, stepIndex)
+
+                    // Duplicate latents for classifier-free guidance
+                    val latentModelInput = duplicateLatents(scaledLatents)
+
+                    // Predict noise (this is the expensive part)
+                    val unetStart = System.currentTimeMillis()
+                    val noisePred = predictNoise(latentModelInput, timestep.toLong(), batchEmbeddings, guidanceScale)
+                    val unetTime = System.currentTimeMillis() - unetStart
+                    totalUnetTime += unetTime
 
                     if (stepIndex == 0) {
-                        Log.d(TAG, "Step 0 - Noise pred size: ${noisePred.size}, min: ${noisePred.minOrNull()}, max: ${noisePred.maxOrNull()}")
+                        Log.d(TAG, "Step 0 - UNet inference: ${unetTime}ms, Noise pred size: ${noisePred.size}")
                     }
 
                     // Perform guidance
@@ -265,11 +298,12 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
                     // Scheduler step
                     latents = scheduler!!.step(guidedNoise, stepIndex, latents)
 
+                    val stepTime = System.currentTimeMillis() - stepStart
                     if (stepIndex == 0 || stepIndex == steps - 1) {
-                        Log.d(TAG, "Step $stepIndex - Latents min: ${latents.minOrNull()}, max: ${latents.maxOrNull()}, mean: ${latents.average()}")
+                        Log.d(TAG, "Step $stepIndex completed in ${stepTime}ms (UNet: ${unetTime}ms)")
                     }
 
-                    // Send progress
+                    // Send progress with timing info
                     sendProgress(stepIndex + 1, steps)
 
                     // Generate and send preview at intervals (but not on first or last step)
@@ -284,6 +318,8 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
                         }
                     }
                 }
+
+                Log.d(TAG, "Total UNet inference time: ${totalUnetTime}ms, Average per step: ${totalUnetTime / steps}ms")
 
                 Log.d(TAG, "Final latents - min: ${latents.minOrNull()}, max: ${latents.maxOrNull()}, mean: ${latents.average()}")
 
@@ -416,7 +452,7 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
         return latents + latents  // [latents, latents] for batch of 2
     }
 
-    private fun predictNoise(latents: FloatArray, timestep: Long, embeddings: FloatArray): FloatArray {
+    private fun predictNoise(latents: FloatArray, timestep: Long, embeddings: FloatArray, guidanceScale: Float): FloatArray {
         val env = ortEnv!!
         val session = unet!!
 
@@ -426,8 +462,9 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
         val height = 64  // 512 / 8
         val width = 64
 
-        // Log input names for debugging
-        Log.d(TAG, "UNet input names: ${session.inputNames.toList()}")
+        // Get input names early for type detection
+        val inputNames = session.inputNames.toList()
+        Log.d(TAG, "UNet input names: $inputNames")
 
         // Create latent tensor
         val latentBuffer = FloatBuffer.wrap(latents)
@@ -436,10 +473,43 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
             longArrayOf(batchSize.toLong(), channels.toLong(), height.toLong(), width.toLong())
         )
 
-        // Create timestep tensor - using int32 as expected by this model
-        val timestepArray = intArrayOf(timestep.toInt(), timestep.toInt())
-        val timestepBuffer = IntBuffer.wrap(timestepArray)
-        val timestepTensor = OnnxTensor.createTensor(env, timestepBuffer, longArrayOf(batchSize.toLong()))
+        // Create timestep tensor - check model's expected type and shape
+        // HuggingFace LCM models expect float with shape [batch, 1], ShiftHackZ models expect int32 with shape [batch]
+        val timestepInputName = inputNames.find { it.contains("timestep") || it == "t" } ?: "timestep"
+        val timestepTensor = try {
+            val inputInfo = session.inputInfo[timestepInputName]
+            val tensorInfo = inputInfo?.info as? TensorInfo
+            val expectedShape = tensorInfo?.shape
+
+            Log.d(TAG, "Timestep input '$timestepInputName' - type: ${tensorInfo?.type}, shape: ${expectedShape?.toList()}")
+
+            // Check if model expects 2D tensor (rank 2) - common for HuggingFace LCM models
+            val isRank2 = expectedShape != null && expectedShape.size == 2
+
+            if (tensorInfo?.type == OnnxJavaType.FLOAT) {
+                // Use float for HuggingFace models
+                val timestepArray = floatArrayOf(timestep.toFloat(), timestep.toFloat())
+                val timestepBuffer = FloatBuffer.wrap(timestepArray)
+                if (isRank2) {
+                    // Shape [batch, 1] for LCM models
+                    OnnxTensor.createTensor(env, timestepBuffer, longArrayOf(batchSize.toLong(), 1L))
+                } else {
+                    // Shape [batch] for other models
+                    OnnxTensor.createTensor(env, timestepBuffer, longArrayOf(batchSize.toLong()))
+                }
+            } else {
+                // Use int32 for ShiftHackZ models
+                val timestepArray = intArrayOf(timestep.toInt(), timestep.toInt())
+                val timestepBuffer = IntBuffer.wrap(timestepArray)
+                OnnxTensor.createTensor(env, timestepBuffer, longArrayOf(batchSize.toLong()))
+            }
+        } catch (e: Exception) {
+            // Fallback to int32 with shape [batch] if we can't determine type
+            Log.w(TAG, "Could not determine timestep type, using int32: ${e.message}")
+            val timestepArray = intArrayOf(timestep.toInt(), timestep.toInt())
+            val timestepBuffer = IntBuffer.wrap(timestepArray)
+            OnnxTensor.createTensor(env, timestepBuffer, longArrayOf(batchSize.toLong()))
+        }
 
         // Create encoder hidden states tensor
         val embeddingBuffer = FloatBuffer.wrap(embeddings)
@@ -452,15 +522,79 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
         )
 
         // Build inputs map based on actual model input names
-        val inputNames = session.inputNames.toList()
         val inputs = mutableMapOf<String, OnnxTensor>()
 
         // Find the right input names (models may use different naming conventions)
+        // Note: Be careful not to match timestep_cond with timestep - they need different tensors
         for (name in inputNames) {
             when {
                 name.contains("sample") || name.contains("latent") -> inputs[name] = latentTensor
-                name.contains("timestep") || name == "t" -> inputs[name] = timestepTensor
+                (name == "timestep" || name == "t" || (name.contains("timestep") && !name.contains("cond"))) -> inputs[name] = timestepTensor
                 name.contains("encoder") || name.contains("hidden") || name.contains("context") -> inputs[name] = embeddingTensor
+            }
+        }
+
+        // Handle additional LCM-specific inputs that might be missing
+        for (name in inputNames) {
+            if (!inputs.containsKey(name)) {
+                Log.w(TAG, "Unknown input: $name - attempting to provide default")
+                // For unknown inputs, try to create appropriate tensors based on expected shape
+                try {
+                    val inputInfo = session.inputInfo[name]
+                    val tensorInfo = inputInfo?.info as? TensorInfo
+                    val expectedShape = tensorInfo?.shape
+                    val expectedRank = expectedShape?.size ?: 0
+                    Log.d(TAG, "Unknown input '$name' - type: ${tensorInfo?.type}, shape: ${expectedShape?.toList()}, rank: $expectedRank")
+
+                    // For timestep_cond in LCM models - this is the guidance scale embedding
+                    // Shape is usually [batch, 256] for embedding
+                    // LCM uses w = guidance_scale - 1 encoded as sinusoidal time embedding
+                    if (name.contains("timestep") || name.contains("cond")) {
+                        if (expectedShape != null && expectedRank >= 2) {
+                            // Get the actual expected dimensions
+                            val dim0 = if (expectedShape[0] == -1L) batchSize.toLong() else expectedShape[0]
+                            val dim1 = if (expectedShape.size > 1 && expectedShape[1] == -1L) 256L else (expectedShape.getOrNull(1) ?: 256L)
+
+                            val condTensor = if (tensorInfo?.type == OnnxJavaType.FLOAT) {
+                                // For timestep_cond, compute sinusoidal time embedding of guidance scale
+                                // w = guidance_scale - 1 (following LCM paper)
+                                val w = guidanceScale - 1.0f
+                                val embedding = computeTimeEmbedding(w * 1000f, dim1.toInt())
+
+                                // Create batched embedding (same for both unconditional and conditional)
+                                val batchedEmbedding = FloatArray((dim0 * dim1).toInt())
+                                for (b in 0 until dim0.toInt()) {
+                                    System.arraycopy(embedding, 0, batchedEmbedding, b * dim1.toInt(), dim1.toInt())
+                                }
+
+                                val condBuffer = FloatBuffer.wrap(batchedEmbedding)
+                                OnnxTensor.createTensor(env, condBuffer, longArrayOf(dim0, dim1))
+                            } else {
+                                val totalSize = (dim0 * dim1).toInt()
+                                val condArray = IntArray(totalSize) { timestep.toInt() }
+                                val condBuffer = IntBuffer.wrap(condArray)
+                                OnnxTensor.createTensor(env, condBuffer, longArrayOf(dim0, dim1))
+                            }
+                            inputs[name] = condTensor
+                            Log.d(TAG, "Created LCM guidance embedding for '$name' with shape [$dim0, $dim1], w=${guidanceScale - 1.0f}")
+                        } else {
+                            // Rank 1 tensor - just use the w value
+                            val condTensor = if (tensorInfo?.type == OnnxJavaType.FLOAT) {
+                                val w = guidanceScale - 1.0f
+                                val condArray = floatArrayOf(w, w)
+                                val condBuffer = FloatBuffer.wrap(condArray)
+                                OnnxTensor.createTensor(env, condBuffer, longArrayOf(batchSize.toLong()))
+                            } else {
+                                val condArray = intArrayOf(timestep.toInt(), timestep.toInt())
+                                val condBuffer = IntBuffer.wrap(condArray)
+                                OnnxTensor.createTensor(env, condBuffer, longArrayOf(batchSize.toLong()))
+                            }
+                            inputs[name] = condTensor
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not handle unknown input $name: ${e.message}")
+                }
             }
         }
 
@@ -533,6 +667,28 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
 
         // Convert to bitmap
         return floatArrayToBitmap(imageData, height, width)
+    }
+
+    /**
+     * Compute sinusoidal time embedding for a given value.
+     * This is used for encoding the guidance scale in LCM models.
+     * Based on the standard Transformer positional encoding.
+     */
+    private fun computeTimeEmbedding(value: Float, embeddingDim: Int): FloatArray {
+        val halfDim = embeddingDim / 2
+        val embedding = FloatArray(embeddingDim)
+
+        // Compute frequencies: exp(-log(10000) * i / half_dim)
+        val logTimescale = -Math.log(10000.0) / halfDim
+
+        for (i in 0 until halfDim) {
+            val freq = Math.exp(i * logTimescale).toFloat()
+            val angle = value * freq
+            embedding[i] = Math.sin(angle.toDouble()).toFloat()
+            embedding[halfDim + i] = Math.cos(angle.toDouble()).toFloat()
+        }
+
+        return embedding
     }
 
     private fun floatArrayToBitmap(data: FloatArray, height: Int, width: Int): Bitmap {
