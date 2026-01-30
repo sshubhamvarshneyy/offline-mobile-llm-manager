@@ -461,10 +461,17 @@ class LLMService {
   }
 
   async stopGeneration(): Promise<void> {
-    if (this.context && this.isGenerating) {
-      await this.context.stopCompletion();
-      this.isGenerating = false;
+    // Always try to stop if we have a context, regardless of isGenerating flag
+    // This handles race conditions where generation might have just finished
+    if (this.context) {
+      try {
+        await this.context.stopCompletion();
+      } catch (e) {
+        // Ignore errors if already stopped or no active completion
+        console.log('[LLM] Stop completion error (may be already stopped):', e);
+      }
     }
+    this.isGenerating = false;
   }
 
   isCurrentlyGenerating(): boolean {
