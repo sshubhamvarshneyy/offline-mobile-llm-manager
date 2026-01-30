@@ -137,31 +137,43 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
                     ortEnv = OrtEnvironment.getEnvironment()
                 }
 
-                // Configure session options for CPU (NNAPI doesn't work with SD models)
-                // Use fewer threads to avoid freezing the UI - leave cores for system/UI
-                val sessionOptions = OrtSession.SessionOptions().apply {
+                // Configure session options for CPU (text_encoder and vae_decoder)
+                val cpuSessionOptions = OrtSession.SessionOptions().apply {
                     setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                    // Use 4 threads instead of 8 to leave CPU headroom for UI responsiveness
                     setIntraOpNumThreads(4)
                     setInterOpNumThreads(2)
-                    // Enable memory optimizations
                     setMemoryPatternOptimization(true)
+                }
+
+                // Configure session options for UNet with NNAPI (GPU acceleration)
+                val unetSessionOptions = OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    setIntraOpNumThreads(4)
+                    setInterOpNumThreads(2)
+                    setMemoryPatternOptimization(true)
+                    // Enable NNAPI for GPU acceleration on Adreno
+                    try {
+                        addNnapi()
+                        Log.d(TAG, "NNAPI execution provider enabled for UNet")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "NNAPI not available, falling back to CPU: ${e.message}")
+                    }
                 }
 
                 // Load models with timing (paths already verified above)
                 var modelLoadTime = System.currentTimeMillis()
                 Log.d(TAG, "Loading text encoder from: ${textEncoderPath!!.absolutePath}")
-                textEncoder = ortEnv!!.createSession(textEncoderPath.absolutePath, sessionOptions)
+                textEncoder = ortEnv!!.createSession(textEncoderPath.absolutePath, cpuSessionOptions)
                 Log.d(TAG, "Text encoder loaded in ${System.currentTimeMillis() - modelLoadTime}ms")
 
                 modelLoadTime = System.currentTimeMillis()
-                Log.d(TAG, "Loading UNet from: ${unetPath!!.absolutePath}")
-                unet = ortEnv!!.createSession(unetPath.absolutePath, sessionOptions)
+                Log.d(TAG, "Loading UNet from: ${unetPath!!.absolutePath} (with NNAPI)")
+                unet = ortEnv!!.createSession(unetPath.absolutePath, unetSessionOptions)
                 Log.d(TAG, "UNet loaded in ${System.currentTimeMillis() - modelLoadTime}ms")
 
                 modelLoadTime = System.currentTimeMillis()
                 Log.d(TAG, "Loading VAE decoder from: ${vaeDecoderPath!!.absolutePath}")
-                vaeDecoder = ortEnv!!.createSession(vaeDecoderPath.absolutePath, sessionOptions)
+                vaeDecoder = ortEnv!!.createSession(vaeDecoderPath.absolutePath, cpuSessionOptions)
                 Log.d(TAG, "VAE decoder loaded in ${System.currentTimeMillis() - modelLoadTime}ms")
 
                 Log.d(TAG, "All models loaded in ${System.currentTimeMillis() - loadStart}ms")
