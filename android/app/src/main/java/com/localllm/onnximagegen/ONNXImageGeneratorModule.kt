@@ -332,9 +332,8 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
         val env = ortEnv!!
         val session = textEncoder!!
 
-        // Create input tensor - convert to Long as many CLIP models expect int64
-        val tokenLongs = tokenIds.map { it.toLong() }.toLongArray()
-        val tokenBuffer = LongBuffer.wrap(tokenLongs)
+        // Create input tensor - using int32 as expected by this model
+        val tokenBuffer = IntBuffer.wrap(tokenIds)
         val inputTensor = OnnxTensor.createTensor(env, tokenBuffer, longArrayOf(1, tokenIds.size.toLong()))
 
         // Run inference - try different input names
@@ -394,10 +393,9 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
             longArrayOf(batchSize.toLong(), channels.toLong(), height.toLong(), width.toLong())
         )
 
-        // Create timestep tensor - use int64 as expected by most diffusers models
-        // Shape can be [batch] or [1] depending on model
-        val timestepArray = longArrayOf(timestep, timestep)
-        val timestepBuffer = LongBuffer.wrap(timestepArray)
+        // Create timestep tensor - using int32 as expected by this model
+        val timestepArray = intArrayOf(timestep.toInt(), timestep.toInt())
+        val timestepBuffer = IntBuffer.wrap(timestepArray)
         val timestepTensor = OnnxTensor.createTensor(env, timestepBuffer, longArrayOf(batchSize.toLong()))
 
         // Create encoder hidden states tensor
