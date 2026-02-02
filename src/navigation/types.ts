@@ -38,6 +38,10 @@ export type ModelsStackParamList = {
 
 export type SettingsStackParamList = {
   SettingsMain: undefined;
+  ModelSettings: undefined;
+  VoiceSettings: undefined;
+  DeviceInfo: undefined;
+  StorageSettings: undefined;
   PassphraseSetup: undefined;
   ChangePassphrase: undefined;
 };

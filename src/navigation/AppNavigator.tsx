@@ -17,18 +17,24 @@ import {
   ProjectDetailScreen,
   ProjectEditScreen,
   DownloadManagerScreen,
+  ModelSettingsScreen,
+  VoiceSettingsScreen,
+  DeviceInfoScreen,
+  StorageSettingsScreen,
 } from '../screens';
 import {
   RootStackParamList,
   MainTabParamList,
   ChatsStackParamList,
   ProjectsStackParamList,
+  SettingsStackParamList,
 } from './types';
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const ChatsStack = createNativeStackNavigator<ChatsStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
+const SettingsStack = createNativeStackNavigator<SettingsStackParamList>();
 
 // Chats Tab Stack
 const ChatsStackNavigator: React.FC = () => {
@@ -62,6 +68,24 @@ const ProjectsStackNavigator: React.FC = () => {
         options={{ presentation: 'modal' }}
       />
     </ProjectsStack.Navigator>
+  );
+};
+
+// Settings Tab Stack
+const SettingsStackNavigator: React.FC = () => {
+  return (
+    <SettingsStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: COLORS.background },
+      }}
+    >
+      <SettingsStack.Screen name="SettingsMain" component={SettingsScreen} />
+      <SettingsStack.Screen name="ModelSettings" component={ModelSettingsScreen} />
+      <SettingsStack.Screen name="VoiceSettings" component={VoiceSettingsScreen} />
+      <SettingsStack.Screen name="DeviceInfo" component={DeviceInfoScreen} />
+      <SettingsStack.Screen name="StorageSettings" component={StorageSettingsScreen} />
+    </SettingsStack.Navigator>
   );
 };
 
@@ -127,8 +151,14 @@ const MainTabs: React.FC = () => {
       />
       <Tab.Screen
         name="SettingsTab"
-        component={SettingsScreen}
+        component={SettingsStackNavigator}
         options={{ tabBarLabel: 'Settings' }}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            // Reset to SettingsMain when tab is pressed
+            navigation.navigate('SettingsTab', { screen: 'SettingsMain' });
+          },
+        })}
       />
     </Tab.Navigator>
   );
