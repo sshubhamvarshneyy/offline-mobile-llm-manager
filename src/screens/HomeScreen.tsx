@@ -13,10 +13,10 @@ import Icon from 'react-native-vector-icons/Feather';
 import { Button, Card, ModelCard } from '../components';
 import { COLORS } from '../constants';
 import { useAppStore, useChatStore } from '../stores';
-import { modelManager, llmService, hardwareService } from '../services';
-import { DownloadedModel, Conversation } from '../types';
+import { modelManager, llmService, hardwareService, onnxImageGeneratorService } from '../services';
+import { DownloadedModel, Conversation, ONNXImageModel } from '../types';
 import { MainTabParamList, ChatsStackParamList } from '../navigation/types';
-import { CompositeNavigationProp, NavigatorScreenParams } from '@react-navigation/native';
+import { NavigatorScreenParams } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
 type MainTabParamListWithNested = {
@@ -33,14 +33,20 @@ type HomeScreenProps = {
   navigation: HomeScreenNavigationProp;
 };
 
+type ModelTab = 'text' | 'image';
+
 export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [isLoadingModel, setIsLoadingModel] = useState(false);
+  const [activeTab, setActiveTab] = useState<ModelTab>('text');
 
   const {
     downloadedModels,
     setDownloadedModels,
     activeModelId,
     setActiveModelId,
+    downloadedImageModels,
+    activeImageModelId,
+    setActiveImageModelId,
     deviceInfo,
     setDeviceInfo,
   } = useAppStore();
@@ -52,20 +58,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   }, []);
 
   const loadData = async () => {
-    // Load device info if not already loaded
     if (!deviceInfo) {
       const info = await hardwareService.getDeviceInfo();
       setDeviceInfo(info);
     }
-
-    // Load downloaded models
     const models = await modelManager.getDownloadedModels();
     setDownloadedModels(models);
   };
 
-  const handleSelectModel = async (model: DownloadedModel) => {
+  const handleSelectTextModel = async (model: DownloadedModel) => {
     if (activeModelId === model.id) {
-      // Already selected, start chat
       startNewChat(model.id);
       return;
     }
@@ -82,10 +84,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     }
   };
 
-  const handleDeleteModel = async (model: DownloadedModel) => {
+  const handleSelectImageModel = async (model: ONNXImageModel) => {
+    if (activeImageModelId === model.id) {
+      return;
+    }
+
+    setIsLoadingModel(true);
+    try {
+      await onnxImageGeneratorService.loadModel(model.modelPath);
+      setActiveImageModelId(model.id);
+      Alert.alert('Model Loaded', `${model.name} is ready for image generation!`);
+    } catch (error) {
+      Alert.alert('Error', `Failed to load model: ${(error as Error).message}`);
+    } finally {
+      setIsLoadingModel(false);
+    }
+  };
+
+  const handleDeleteTextModel = async (model: DownloadedModel) => {
     Alert.alert(
       'Delete Model',
-      `Are you sure you want to delete ${model.name}? This will free up ${hardwareService.formatBytes(model.fileSize)}.`,
+      `Delete ${model.name}? This will free up ${hardwareService.formatBytes(model.fileSize)}.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -123,7 +142,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const handleDeleteConversation = (conversation: Conversation) => {
     Alert.alert(
       'Delete Conversation',
-      `Are you sure you want to delete "${conversation.title}"?`,
+      `Delete "${conversation.title}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -140,12 +159,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       style={styles.deleteAction}
       onPress={() => handleDeleteConversation(conversation)}
     >
-      <Text style={styles.deleteActionText}>Delete</Text>
+      <Icon name="trash-2" size={18} color={COLORS.text} />
     </TouchableOpacity>
   );
 
-  const activeModel = downloadedModels.find((m) => m.id === activeModelId);
-  const recentConversations = conversations.slice(0, 5);
+  const activeTextModel = downloadedModels.find((m) => m.id === activeModelId);
+  const activeImageModel = downloadedImageModels.find((m) => m.id === activeImageModelId);
+  const recentConversations = conversations.slice(0, 3);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -155,48 +175,223 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           <Text style={styles.subtitle}>Private AI on your device</Text>
         </View>
 
-        {/* Active Model Section */}
-        <Card style={styles.activeModelCard}>
-          <Text style={styles.sectionTitle}>Active Model</Text>
-          {activeModel ? (
-            <View>
-              <View style={styles.activeModelInfo}>
-                <View style={styles.activeModelTextContainer}>
-                  <Text style={styles.activeModelName} numberOfLines={1}>{activeModel.name}</Text>
-                  <Text style={styles.activeModelDetails}>
-                    {activeModel.quantization} -{' '}
-                    {hardwareService.formatBytes(activeModel.fileSize)}
-                  </Text>
-                </View>
-                <Button
-                  title="Chat"
-                  size="small"
-                  onPress={() => startNewChat(activeModel.id)}
-                  loading={isLoadingModel}
-                  style={styles.newChatButton}
-                />
+        {/* Model Type Tabs */}
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'text' && styles.tabActive]}
+            onPress={() => setActiveTab('text')}
+          >
+            <Icon
+              name="message-square"
+              size={16}
+              color={activeTab === 'text' ? COLORS.text : COLORS.textMuted}
+            />
+            <Text style={[styles.tabText, activeTab === 'text' && styles.tabTextActive]}>
+              Text Models
+            </Text>
+            {downloadedModels.length > 0 && (
+              <View style={styles.tabBadge}>
+                <Text style={styles.tabBadgeText}>{downloadedModels.length}</Text>
               </View>
-            </View>
-          ) : (
-            <View style={styles.noModelContainer}>
-              <Text style={styles.noModelText}>
-                No model selected. Select a model below or download one.
-              </Text>
-              <Button
-                title="Browse Models"
-                variant="outline"
-                size="small"
-                onPress={() => navigation.navigate('ModelsTab')}
-              />
-            </View>
-          )}
-        </Card>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'image' && styles.tabActive]}
+            onPress={() => setActiveTab('image')}
+          >
+            <Icon
+              name="image"
+              size={16}
+              color={activeTab === 'image' ? COLORS.text : COLORS.textMuted}
+            />
+            <Text style={[styles.tabText, activeTab === 'image' && styles.tabTextActive]}>
+              Image Models
+            </Text>
+            {downloadedImageModels.length > 0 && (
+              <View style={styles.tabBadge}>
+                <Text style={styles.tabBadgeText}>{downloadedImageModels.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
 
-        {/* Recent Conversations */}
-        {recentConversations.length > 0 && (
+        {/* Text Models Tab Content */}
+        {activeTab === 'text' && (
+          <>
+            {/* Active Text Model */}
+            {activeTextModel ? (
+              <Card style={styles.activeModelCard}>
+                <View style={styles.activeModelHeader}>
+                  <View style={styles.activeIndicator} />
+                  <Text style={styles.activeLabel}>Active</Text>
+                </View>
+                <View style={styles.activeModelInfo}>
+                  <View style={styles.activeModelTextContainer}>
+                    <Text style={styles.activeModelName} numberOfLines={1}>
+                      {activeTextModel.name}
+                    </Text>
+                    <Text style={styles.activeModelDetails}>
+                      {activeTextModel.quantization} · {hardwareService.formatBytes(activeTextModel.fileSize)}
+                    </Text>
+                  </View>
+                  <Button
+                    title="Chat"
+                    size="small"
+                    onPress={() => startNewChat(activeTextModel.id)}
+                    loading={isLoadingModel}
+                  />
+                </View>
+              </Card>
+            ) : (
+              <Card style={styles.noModelCard}>
+                <Icon name="cpu" size={24} color={COLORS.textMuted} />
+                <Text style={styles.noModelText}>No text model selected</Text>
+                <Button
+                  title="Browse Models"
+                  variant="outline"
+                  size="small"
+                  onPress={() => navigation.navigate('ModelsTab')}
+                />
+              </Card>
+            )}
+
+            {/* Downloaded Text Models */}
+            {downloadedModels.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Downloaded</Text>
+                  <Button
+                    title="Browse"
+                    variant="ghost"
+                    size="small"
+                    onPress={() => navigation.navigate('ModelsTab')}
+                  />
+                </View>
+                {downloadedModels.map((model) => (
+                  <ModelCard
+                    key={model.id}
+                    model={{
+                      id: model.id,
+                      name: model.name,
+                      author: model.author,
+                      credibility: model.credibility,
+                    }}
+                    downloadedModel={model}
+                    isDownloaded
+                    isActive={activeModelId === model.id}
+                    onSelect={() => handleSelectTextModel(model)}
+                    onDelete={() => handleDeleteTextModel(model)}
+                  />
+                ))}
+              </View>
+            )}
+
+            {downloadedModels.length === 0 && (
+              <Card style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No Text Models</Text>
+                <Text style={styles.emptyText}>
+                  Download a model to start chatting privately on your device.
+                </Text>
+                <Button
+                  title="Download a Model"
+                  onPress={() => navigation.navigate('ModelsTab')}
+                />
+              </Card>
+            )}
+          </>
+        )}
+
+        {/* Image Models Tab Content */}
+        {activeTab === 'image' && (
+          <>
+            {/* Active Image Model */}
+            {activeImageModel ? (
+              <Card style={styles.activeModelCard}>
+                <View style={styles.activeModelHeader}>
+                  <View style={styles.activeIndicator} />
+                  <Text style={styles.activeLabel}>Active</Text>
+                </View>
+                <View style={styles.activeModelInfo}>
+                  <View style={styles.activeModelTextContainer}>
+                    <Text style={styles.activeModelName} numberOfLines={1}>
+                      {activeImageModel.name}
+                    </Text>
+                    <Text style={styles.activeModelDetails}>
+                      {activeImageModel.style || 'Image Generation'} · {hardwareService.formatBytes(activeImageModel.size)}
+                    </Text>
+                  </View>
+                </View>
+              </Card>
+            ) : (
+              <Card style={styles.noModelCard}>
+                <Icon name="image" size={24} color={COLORS.textMuted} />
+                <Text style={styles.noModelText}>No image model selected</Text>
+                <Button
+                  title="Browse Models"
+                  variant="outline"
+                  size="small"
+                  onPress={() => navigation.navigate('ModelsTab')}
+                />
+              </Card>
+            )}
+
+            {/* Downloaded Image Models */}
+            {downloadedImageModels.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Downloaded</Text>
+                  <Button
+                    title="Browse"
+                    variant="ghost"
+                    size="small"
+                    onPress={() => navigation.navigate('ModelsTab')}
+                  />
+                </View>
+                {downloadedImageModels.map((model) => (
+                  <TouchableOpacity
+                    key={model.id}
+                    style={[
+                      styles.imageModelItem,
+                      activeImageModelId === model.id && styles.imageModelItemActive,
+                    ]}
+                    onPress={() => handleSelectImageModel(model)}
+                  >
+                    <View style={styles.imageModelIcon}>
+                      <Icon name="image" size={20} color={COLORS.textSecondary} />
+                    </View>
+                    <View style={styles.imageModelInfo}>
+                      <Text style={styles.imageModelName}>{model.name}</Text>
+                      <Text style={styles.imageModelMeta}>
+                        {model.style || 'Image'} · {hardwareService.formatBytes(model.size)}
+                      </Text>
+                    </View>
+                    {activeImageModelId === model.id && (
+                      <Icon name="check" size={18} color={COLORS.textSecondary} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {downloadedImageModels.length === 0 && (
+              <Card style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No Image Models</Text>
+                <Text style={styles.emptyText}>
+                  Download an image model to generate images on your device.
+                </Text>
+                <Button
+                  title="Download a Model"
+                  onPress={() => navigation.navigate('ModelsTab')}
+                />
+              </Card>
+            )}
+          </>
+        )}
+
+        {/* Recent Conversations - only show on text tab */}
+        {activeTab === 'text' && recentConversations.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Recent Conversations</Text>
-            <Text style={styles.sectionHint}>Swipe left to delete</Text>
+            <Text style={styles.sectionTitle}>Recent Chats</Text>
             {recentConversations.map((conv) => (
               <Swipeable
                 key={conv.id}
@@ -212,72 +407,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
                       {conv.title}
                     </Text>
                     <Text style={styles.conversationMeta}>
-                      {conv.messages.length} messages -{' '}
-                      {formatDate(conv.updatedAt)}
+                      {conv.messages.length} messages · {formatDate(conv.updatedAt)}
                     </Text>
                   </View>
-                  <Text style={styles.chevron}>{'>'}</Text>
+                  <Icon name="chevron-right" size={18} color={COLORS.textMuted} />
                 </TouchableOpacity>
               </Swipeable>
             ))}
           </View>
         )}
-
-        {/* Downloaded Models */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Your Models</Text>
-            <Button
-              title="Browse More"
-              variant="ghost"
-              size="small"
-              onPress={() => navigation.navigate('ModelsTab')}
-            />
-          </View>
-
-          {downloadedModels.length === 0 ? (
-            <Card style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No Models Downloaded</Text>
-              <Text style={styles.emptyText}>
-                Download a model to start chatting privately on your device.
-              </Text>
-              <Button
-                title="Download a Model"
-                onPress={() => navigation.navigate('ModelsTab')}
-                style={styles.emptyButton}
-              />
-            </Card>
-          ) : (
-            downloadedModels.map((model) => (
-              <ModelCard
-                key={model.id}
-                model={{
-                  id: model.id,
-                  name: model.name,
-                  author: model.author,
-                  credibility: model.credibility,
-                }}
-                downloadedModel={model}
-                isDownloaded
-                isActive={activeModelId === model.id}
-                onSelect={() => handleSelectModel(model)}
-                onDelete={() => handleDeleteModel(model)}
-              />
-            ))
-          )}
-        </View>
-
-        {/* Privacy Card */}
-        <Card style={styles.privacyCard}>
-          <View style={styles.privacyIconContainer}>
-            <Icon name="lock" size={24} color={COLORS.secondary} />
-          </View>
-          <Text style={styles.privacyTitle}>Your Privacy is Protected</Text>
-          <Text style={styles.privacyText}>
-            All conversations are processed entirely on your device. No data
-            leaves your phone.
-          </Text>
-        </Card>
       </ScrollView>
     </SafeAreaView>
   );
@@ -291,7 +429,7 @@ function formatDate(dateStr: string): string {
 
   if (days === 0) return 'Today';
   if (days === 1) return 'Yesterday';
-  if (days < 7) return `${days} days ago`;
+  if (days < 7) return `${days}d ago`;
   return date.toLocaleDateString();
 }
 
@@ -308,43 +446,78 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: COLORS.text,
   },
   subtitle: {
-    fontSize: 16,
-    color: COLORS.textSecondary,
-    marginTop: 4,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  sectionHint: {
-    fontSize: 12,
+    fontSize: 14,
     color: COLORS.textMuted,
-    marginBottom: 12,
+    marginTop: 2,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.surface,
+    borderRadius: 10,
+    padding: 4,
+    marginBottom: 16,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 6,
+  },
+  tabActive: {
+    backgroundColor: COLORS.surfaceLight,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.textMuted,
+  },
+  tabTextActive: {
+    color: COLORS.text,
+  },
+  tabBadge: {
+    backgroundColor: COLORS.surfaceLight,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  tabBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
   },
   activeModelCard: {
-    marginBottom: 24,
-    backgroundColor: COLORS.primary + '20',
-    borderWidth: 1,
-    borderColor: COLORS.primary,
+    marginBottom: 16,
+  },
+  activeModelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 6,
+  },
+  activeIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.primary,
+  },
+  activeLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: COLORS.textSecondary,
   },
   activeModelInfo: {
     flexDirection: 'row',
@@ -357,109 +530,116 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   activeModelName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: COLORS.text,
   },
   activeModelDetails: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
+    fontSize: 13,
+    color: COLORS.textMuted,
     marginTop: 2,
   },
-  newChatButton: {
-    flexShrink: 0,
-    minWidth: 70,
-  },
-  noModelContainer: {
+  noModelCard: {
     alignItems: 'center',
+    paddingVertical: 24,
+    marginBottom: 16,
     gap: 12,
   },
   noModelText: {
-    color: COLORS.textSecondary,
-    textAlign: 'center',
+    color: COLORS.textMuted,
+    fontSize: 14,
   },
-  conversationItem: {
+  section: {
+    marginBottom: 20,
+  },
+  sectionHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  conversationInfo: {
-    flex: 1,
-  },
-  conversationTitle: {
+  sectionTitle: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     color: COLORS.text,
-  },
-  conversationMeta: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    marginTop: 4,
-  },
-  chevron: {
-    fontSize: 18,
-    color: COLORS.textMuted,
   },
   emptyCard: {
     alignItems: 'center',
     padding: 32,
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: COLORS.text,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   emptyText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
+    fontSize: 13,
+    color: COLORS.textMuted,
     textAlign: 'center',
     marginBottom: 16,
   },
-  emptyButton: {
-    minWidth: 200,
-  },
-  privacyCard: {
+  imageModelItem: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.secondary + '15',
-    borderWidth: 1,
-    borderColor: COLORS.secondary + '40',
+    backgroundColor: COLORS.surface,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
   },
-  privacyIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: COLORS.secondary + '20',
+  imageModelItemActive: {
+    backgroundColor: COLORS.surfaceLight,
+  },
+  imageModelIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: COLORS.surfaceLight,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginRight: 12,
   },
-  privacyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.secondary,
-    marginBottom: 4,
+  imageModelInfo: {
+    flex: 1,
   },
-  privacyText: {
+  imageModelName: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: COLORS.text,
+  },
+  imageModelMeta: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  conversationItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 6,
+  },
+  conversationInfo: {
+    flex: 1,
+  },
+  conversationTitle: {
     fontSize: 14,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
+    fontWeight: '500',
+    color: COLORS.text,
+  },
+  conversationMeta: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    marginTop: 2,
   },
   deleteAction: {
     backgroundColor: COLORS.error,
     justifyContent: 'center',
     alignItems: 'center',
-    width: 80,
-    borderRadius: 12,
-    marginBottom: 8,
+    width: 60,
+    borderRadius: 10,
+    marginBottom: 6,
     marginLeft: 8,
-  },
-  deleteActionText: {
-    color: COLORS.text,
-    fontWeight: '600',
-    fontSize: 14,
   },
 });
