@@ -478,6 +478,46 @@ class LLMService {
     this.isGenerating = false;
   }
 
+  /**
+   * Clear the KV cache to free memory and reset conversation state.
+   * This helps prevent performance degradation after many messages.
+   * Call this between conversations or when memory pressure is high.
+   * @param clearData If true, clears both metadata and tensor data (slower but more thorough)
+   */
+  async clearKVCache(clearData: boolean = false): Promise<void> {
+    if (!this.context) {
+      return;
+    }
+
+    try {
+      await (this.context as any).clearCache(clearData);
+      console.log('[LLM] KV cache cleared');
+    } catch (e) {
+      console.log('[LLM] Failed to clear KV cache:', e);
+    }
+  }
+
+  /**
+   * Get estimated memory usage of the loaded model based on context size
+   */
+  getEstimatedMemoryUsage(): { contextMemoryMB: number; totalEstimatedMB: number } {
+    if (!this.context) {
+      return { contextMemoryMB: 0, totalEstimatedMB: 0 };
+    }
+
+    // Estimate KV cache memory: 2 * n_ctx * n_embd * n_layer * sizeof(float16)
+    // For a typical 7B model: n_embd=4096, n_layer=32
+    // Using f16 cache: 2 bytes per value, 2 KV matrices
+    const contextLength = this.currentSettings.contextLength || 2048;
+    // Rough estimate: 2 * ctx * 4096 * 32 * 2 / (1024*1024) = ctx * 0.5 MB
+    const contextMemoryMB = contextLength * 0.5;
+
+    return {
+      contextMemoryMB,
+      totalEstimatedMB: contextMemoryMB, // Model memory is separate and tracked via file size
+    };
+  }
+
   isCurrentlyGenerating(): boolean {
     return this.isGenerating;
   }
