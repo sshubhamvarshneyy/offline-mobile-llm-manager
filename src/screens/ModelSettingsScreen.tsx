@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Slider from '@react-native-community/slider';
@@ -18,6 +19,8 @@ import { useAppStore } from '../stores';
 export const ModelSettingsScreen: React.FC = () => {
   const navigation = useNavigation();
   const { settings: rawSettings, updateSettings } = useAppStore();
+
+  const systemPrompt = rawSettings?.systemPrompt ?? 'You are a helpful AI assistant.';
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -33,6 +36,23 @@ export const ModelSettingsScreen: React.FC = () => {
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+        {/* System Prompt */}
+        <Card style={styles.section}>
+          <Text style={styles.sectionTitle}>Default System Prompt</Text>
+          <Text style={styles.settingHelp}>
+            Instructions given to the model before each conversation. Used when chatting without a project selected.
+          </Text>
+          <TextInput
+            style={styles.textArea}
+            value={systemPrompt}
+            onChangeText={(text) => updateSettings({ systemPrompt: text })}
+            multiline
+            numberOfLines={4}
+            placeholder="Enter system prompt..."
+            placeholderTextColor={COLORS.textMuted}
+          />
+        </Card>
+
         {/* Image Generation Settings */}
         <Card style={styles.section}>
           <Text style={styles.sectionTitle}>Image Generation</Text>
@@ -66,7 +86,7 @@ export const ModelSettingsScreen: React.FC = () => {
           <View style={styles.sliderSection}>
             <View style={styles.sliderHeader}>
               <Text style={styles.sliderLabel}>Image Steps</Text>
-              <Text style={styles.sliderValue}>{rawSettings?.imageSteps || 20}</Text>
+              <Text style={styles.sliderValue}>{rawSettings?.imageSteps || 30}</Text>
             </View>
             <Text style={styles.sliderDesc}>More steps = better quality but slower (LCM: 4-8, Standard: 20-50)</Text>
             <Slider
@@ -74,7 +94,7 @@ export const ModelSettingsScreen: React.FC = () => {
               minimumValue={4}
               maximumValue={50}
               step={1}
-              value={rawSettings?.imageSteps || 20}
+              value={rawSettings?.imageSteps || 30}
               onSlidingComplete={(value) => updateSettings({ imageSteps: value })}
               minimumTrackTintColor={COLORS.primary}
               maximumTrackTintColor={COLORS.surface}
@@ -353,6 +373,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textMuted,
     marginBottom: 12,
+  },
+  textArea: {
+    backgroundColor: COLORS.surfaceLight,
+    borderRadius: 8,
+    padding: 12,
+    color: COLORS.text,
+    fontSize: 14,
+    minHeight: 80,
+    textAlignVertical: 'top',
   },
   toggleRow: {
     flexDirection: 'row',

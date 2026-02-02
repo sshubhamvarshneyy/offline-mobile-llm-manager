@@ -1,14 +1,11 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TextInput,
   Alert,
   TouchableOpacity,
-  Switch,
-  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Feather';
@@ -18,32 +15,19 @@ import { Card, Button } from '../components';
 import { COLORS } from '../constants';
 import { useAppStore, useChatStore, useAuthStore } from '../stores';
 import { modelManager, llmService, authService } from '../services';
-import { PassphraseSetupScreen } from './PassphraseSetupScreen';
 import { SettingsStackParamList } from '../navigation/types';
 
 type NavigationProp = NativeStackNavigationProp<SettingsStackParamList, 'SettingsMain'>;
 
 export const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
-  const [showPassphraseSetup, setShowPassphraseSetup] = useState(false);
-  const [isChangingPassphrase, setIsChangingPassphrase] = useState(false);
 
   const {
-    settings: rawSettings,
-    updateSettings,
     downloadedModels,
     setOnboardingComplete,
   } = useAppStore();
 
-  const {
-    isEnabled: authEnabled,
-    setEnabled: setAuthEnabled,
-  } = useAuthStore();
-
-  const settings = {
-    systemPrompt: rawSettings?.systemPrompt ?? 'You are a helpful AI assistant.',
-  };
-
+  const { setEnabled: setAuthEnabled } = useAuthStore();
   const { clearAllConversations } = useChatStore();
 
   const handleClearConversations = () => {
@@ -93,34 +77,6 @@ export const SettingsScreen: React.FC = () => {
     );
   };
 
-  const handleTogglePassphrase = async () => {
-    if (authEnabled) {
-      Alert.alert(
-        'Disable Passphrase Lock',
-        'Are you sure you want to disable passphrase protection?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Disable',
-            style: 'destructive',
-            onPress: async () => {
-              await authService.removePassphrase();
-              setAuthEnabled(false);
-            },
-          },
-        ]
-      );
-    } else {
-      setIsChangingPassphrase(false);
-      setShowPassphraseSetup(true);
-    }
-  };
-
-  const handleChangePassphrase = () => {
-    setIsChangingPassphrase(true);
-    setShowPassphraseSetup(true);
-  };
-
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
@@ -132,12 +88,12 @@ export const SettingsScreen: React.FC = () => {
             style={styles.navItem}
             onPress={() => navigation.navigate('ModelSettings')}
           >
-            <View style={[styles.navItemIcon, { backgroundColor: COLORS.primary + '20' }]}>
-              <Icon name="sliders" size={20} color={COLORS.primary} />
+            <View style={styles.navItemIcon}>
+              <Icon name="sliders" size={20} color={COLORS.textSecondary} />
             </View>
             <View style={styles.navItemContent}>
               <Text style={styles.navItemTitle}>Model Settings</Text>
-              <Text style={styles.navItemDesc}>Generation, performance, and image settings</Text>
+              <Text style={styles.navItemDesc}>System prompt, generation, and performance</Text>
             </View>
             <Icon name="chevron-right" size={20} color={COLORS.textMuted} />
           </TouchableOpacity>
@@ -146,8 +102,8 @@ export const SettingsScreen: React.FC = () => {
             style={styles.navItem}
             onPress={() => navigation.navigate('VoiceSettings')}
           >
-            <View style={[styles.navItemIcon, { backgroundColor: COLORS.secondary + '20' }]}>
-              <Icon name="mic" size={20} color={COLORS.secondary} />
+            <View style={styles.navItemIcon}>
+              <Icon name="mic" size={20} color={COLORS.textSecondary} />
             </View>
             <View style={styles.navItemContent}>
               <Text style={styles.navItemTitle}>Voice Transcription</Text>
@@ -158,10 +114,24 @@ export const SettingsScreen: React.FC = () => {
 
           <TouchableOpacity
             style={styles.navItem}
+            onPress={() => navigation.navigate('SecuritySettings')}
+          >
+            <View style={styles.navItemIcon}>
+              <Icon name="lock" size={20} color={COLORS.textSecondary} />
+            </View>
+            <View style={styles.navItemContent}>
+              <Text style={styles.navItemTitle}>Security</Text>
+              <Text style={styles.navItemDesc}>Passphrase and app lock</Text>
+            </View>
+            <Icon name="chevron-right" size={20} color={COLORS.textMuted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.navItem}
             onPress={() => navigation.navigate('DeviceInfo')}
           >
-            <View style={[styles.navItemIcon, { backgroundColor: '#3B82F620' }]}>
-              <Icon name="smartphone" size={20} color="#3B82F6" />
+            <View style={styles.navItemIcon}>
+              <Icon name="smartphone" size={20} color={COLORS.textSecondary} />
             </View>
             <View style={styles.navItemContent}>
               <Text style={styles.navItemTitle}>Device Information</Text>
@@ -174,8 +144,8 @@ export const SettingsScreen: React.FC = () => {
             style={[styles.navItem, styles.navItemLast]}
             onPress={() => navigation.navigate('StorageSettings')}
           >
-            <View style={[styles.navItemIcon, { backgroundColor: '#F5972020' }]}>
-              <Icon name="hard-drive" size={20} color="#F59720" />
+            <View style={styles.navItemIcon}>
+              <Icon name="hard-drive" size={20} color={COLORS.textSecondary} />
             </View>
             <View style={styles.navItemContent}>
               <Text style={styles.navItemTitle}>Storage</Text>
@@ -184,60 +154,6 @@ export const SettingsScreen: React.FC = () => {
             <Icon name="chevron-right" size={20} color={COLORS.textMuted} />
           </TouchableOpacity>
         </View>
-
-        {/* Security */}
-        <Card style={styles.section}>
-          <Text style={styles.sectionTitle}>Security</Text>
-          <View style={styles.securityRow}>
-            <View style={styles.securityInfo}>
-              <Text style={styles.securityLabel}>Passphrase Lock</Text>
-              <Text style={styles.securityHint}>Require passphrase to open app</Text>
-            </View>
-            <Switch
-              value={authEnabled}
-              onValueChange={handleTogglePassphrase}
-              trackColor={{ false: COLORS.surfaceLight, true: COLORS.primary + '80' }}
-              thumbColor={authEnabled ? COLORS.primary : COLORS.textMuted}
-            />
-          </View>
-          {authEnabled && (
-            <TouchableOpacity
-              style={styles.changePassphraseButton}
-              onPress={handleChangePassphrase}
-            >
-              <Text style={styles.changePassphraseText}>Change Passphrase</Text>
-            </TouchableOpacity>
-          )}
-        </Card>
-
-        {/* Default System Prompt */}
-        <Card style={styles.section}>
-          <Text style={styles.sectionTitle}>Default System Prompt</Text>
-          <Text style={styles.settingHelp}>
-            Used when chatting without a project selected.
-          </Text>
-          <TextInput
-            style={styles.textArea}
-            value={settings.systemPrompt}
-            onChangeText={(text) => updateSettings({ systemPrompt: text })}
-            multiline
-            numberOfLines={4}
-            placeholder="Enter system prompt..."
-            placeholderTextColor={COLORS.textMuted}
-          />
-        </Card>
-
-        {/* Privacy */}
-        <Card style={styles.privacyCard}>
-          <View style={styles.privacyIconContainer}>
-            <Icon name="lock" size={24} color={COLORS.secondary} />
-          </View>
-          <Text style={styles.privacyTitle}>Privacy First</Text>
-          <Text style={styles.privacyText}>
-            All your data stays on this device. No conversations, prompts, or
-            personal information is ever sent to any server.
-          </Text>
-        </Card>
 
         {/* Data Management */}
         <Card style={styles.section}>
@@ -266,19 +182,19 @@ export const SettingsScreen: React.FC = () => {
             Local LLM brings AI to your device without compromising your privacy.
           </Text>
         </Card>
-      </ScrollView>
 
-      <Modal
-        visible={showPassphraseSetup}
-        animationType="slide"
-        onRequestClose={() => setShowPassphraseSetup(false)}
-      >
-        <PassphraseSetupScreen
-          isChanging={isChangingPassphrase}
-          onComplete={() => setShowPassphraseSetup(false)}
-          onCancel={() => setShowPassphraseSetup(false)}
-        />
-      </Modal>
+        {/* Privacy */}
+        <Card style={styles.privacyCard}>
+          <View style={styles.privacyIconContainer}>
+            <Icon name="shield" size={24} color={COLORS.textSecondary} />
+          </View>
+          <Text style={styles.privacyTitle}>Privacy First</Text>
+          <Text style={styles.privacyText}>
+            All your data stays on this device. No conversations, prompts, or
+            personal information is ever sent to any server.
+          </Text>
+        </Card>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -318,9 +234,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
   },
   navItemIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: COLORS.surfaceLight,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -347,79 +264,6 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     marginBottom: 12,
   },
-  securityRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  securityInfo: {
-    flex: 1,
-  },
-  securityLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: COLORS.text,
-  },
-  securityHint: {
-    fontSize: 13,
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
-  changePassphraseButton: {
-    marginTop: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: COLORS.surfaceLight,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-  },
-  changePassphraseText: {
-    fontSize: 14,
-    color: COLORS.primary,
-    fontWeight: '500',
-  },
-  settingHelp: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    marginBottom: 12,
-  },
-  textArea: {
-    backgroundColor: COLORS.surfaceLight,
-    borderRadius: 8,
-    padding: 12,
-    color: COLORS.text,
-    fontSize: 14,
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  privacyCard: {
-    alignItems: 'center',
-    backgroundColor: COLORS.secondary + '15',
-    borderWidth: 1,
-    borderColor: COLORS.secondary + '40',
-    marginBottom: 16,
-  },
-  privacyIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: COLORS.secondary + '20',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  privacyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.secondary,
-    marginBottom: 8,
-  },
-  privacyText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
   dangerButton: {
     borderColor: COLORS.error,
     marginBottom: 12,
@@ -443,5 +287,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.textMuted,
     lineHeight: 18,
+  },
+  privacyCard: {
+    alignItems: 'center',
+    backgroundColor: COLORS.surfaceLight,
+  },
+  privacyIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  privacyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+  privacyText: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

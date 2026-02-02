@@ -42,6 +42,7 @@ export type SettingsStackParamList = {
   VoiceSettings: undefined;
   DeviceInfo: undefined;
   StorageSettings: undefined;
+  SecuritySettings: undefined;
   PassphraseSetup: undefined;
   ChangePassphrase: undefined;
 };

@@ -16,3 +16,4 @@ export { ModelSettingsScreen } from './ModelSettingsScreen';
 export { VoiceSettingsScreen } from './VoiceSettingsScreen';
 export { DeviceInfoScreen } from './DeviceInfoScreen';
 export { StorageSettingsScreen } from './StorageSettingsScreen';
+export { SecuritySettingsScreen } from './SecuritySettingsScreen';

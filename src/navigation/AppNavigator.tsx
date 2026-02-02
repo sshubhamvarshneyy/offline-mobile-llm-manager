@@ -21,6 +21,7 @@ import {
   VoiceSettingsScreen,
   DeviceInfoScreen,
   StorageSettingsScreen,
+  SecuritySettingsScreen,
 } from '../screens';
 import {
   RootStackParamList,
@@ -85,6 +86,7 @@ const SettingsStackNavigator: React.FC = () => {
       <SettingsStack.Screen name="VoiceSettings" component={VoiceSettingsScreen} />
       <SettingsStack.Screen name="DeviceInfo" component={DeviceInfoScreen} />
       <SettingsStack.Screen name="StorageSettings" component={StorageSettingsScreen} />
+      <SettingsStack.Screen name="SecuritySettings" component={SecuritySettingsScreen} />
     </SettingsStack.Navigator>
   );
 };
