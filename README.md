@@ -37,7 +37,8 @@ In a world where AI assistants harvest your conversations, LocalLLM takes a diff
 The home screen gives you a complete overview at a glance: your currently active model, all downloaded models ready to use, and quick actions to start chatting or explore more models.
 
 <p align="center">
-  <img src="screenshots/Screenshot_2026-01-30-12-29-09-94_f28200242d1465b50ec18721116dc637.jpg" width="300" alt="Home Dashboard">
+  <img src="screenshots/home-dashboard-top.jpg" width="300" alt="Home Dashboard - Memory and Models">
+  <img src="screenshots/home-dashboard-bottom.jpg" width="300" alt="Home Dashboard - Recent Chats">
 </p>
 
 ### Intelligent Chat Interface
