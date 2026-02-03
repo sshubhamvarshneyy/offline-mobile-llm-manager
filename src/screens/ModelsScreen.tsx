@@ -26,116 +26,108 @@ import { huggingFaceService, modelManager, hardwareService, onnxImageGeneratorSe
 import { ModelInfo, ModelFile, DownloadedModel, ModelSource, ONNXImageModel } from '../types';
 import { RootStackParamList } from '../navigation/types';
 
-// HuggingFace file structure for LCM model
-const LCM_HUGGINGFACE_FILES = [
-  { path: 'text_encoder/model.onnx', size: 247 * 1024 * 1024 },
-  { path: 'unet/model.onnx', size: 93.7 * 1024 * 1024 },
-  { path: 'unet/model.onnx_data', size: 1.64 * 1024 * 1024 * 1024 },
-  { path: 'unet/config.json', size: 2 * 1024 },
-  { path: 'vae_decoder/model.onnx', size: 2.11 * 1024 * 1024 },
-  { path: 'vae_decoder/model.onnx_data', size: 97.4 * 1024 * 1024 },
-  { path: 'vae_decoder/config.json', size: 1 * 1024 },
-  { path: 'tokenizer/vocab.json', size: 1.06 * 1024 * 1024 },
-  { path: 'tokenizer/merges.txt', size: 525 * 1024 },
-  { path: 'tokenizer/tokenizer_config.json', size: 2 * 1024 },
-  { path: 'tokenizer/special_tokens_map.json', size: 1 * 1024 },
-];
-
-// Predefined ONNX image models available for download
-// Note: Only 1GB+ models from patch-14022024 work reliably. The 600MB models from patch-25022024 have compatibility issues.
+// local-dream image models (MNN CPU backend - works on any ARM64 device)
+// Models are pre-converted and hosted on HuggingFace by xororz
 const AVAILABLE_IMAGE_MODELS: Array<{
   id: string;
   name: string;
   description: string;
-  downloadUrl?: string;
-  huggingFaceRepo?: string;
-  huggingFaceFiles?: Array<{ path: string; size: number }>;
+  downloadUrl: string;
   size: number;
   style: string;
+  backend: 'mnn' | 'qnn';
 }> = [
-  // === Photorealistic Models (patch-14022024 - 1GB+, stable) ===
+  // === CPU Models (MNN backend - universal ARM64 support) ===
   {
-    id: 'absolute_reality',
-    name: 'Absolute Reality',
-    description: 'Best photorealistic model - high fidelity portraits and scenes',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-14022024/majicmix.zip',
-    size: 1034 * 1024 * 1024, // ~1GB
-    style: 'photorealistic',
-  },
-  {
-    id: 'chilloutmix',
-    name: 'ChilloutMix',
-    description: 'Popular for realistic portraits, especially Asian features',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-14022024/chilloutmix.zip',
-    size: 1034 * 1024 * 1024, // ~1GB
-    style: 'photorealistic',
-  },
-  {
-    id: 'realvision',
-    name: 'Realistic Vision',
-    description: 'Top-tier realistic model - excellent for human faces and scenes',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-14022024/realvision.zip',
-    size: 1034 * 1024 * 1024, // ~1GB
-    style: 'photorealistic',
-  },
-  // === Creative/Artistic Models ===
-  {
-    id: 'lcm_dreamshaper_v7',
-    name: 'LCM DreamShaper v7',
-    description: 'Fast generation (4-8 steps) - versatile creative model',
-    huggingFaceRepo: 'aislamov/lcm-dreamshaper-v7-onnx',
-    huggingFaceFiles: LCM_HUGGINGFACE_FILES,
-    size: 2.22 * 1024 * 1024 * 1024, // ~2.22GB
-    style: 'creative',
-  },
-  // === Additional Models (patch-25022024 - 600MB, may have compatibility issues) ===
-  {
-    id: 'deliberate',
-    name: 'Deliberate',
-    description: 'Digital art & realism blend - detailed artistic illustrations',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/deliberate.zip',
-    size: 604 * 1024 * 1024, // ~600MB
-    style: 'artistic',
-  },
-  {
-    id: 'dreamshaper',
-    name: 'DreamShaper',
-    description: 'Versatile model for fantasy, sci-fi, and artistic styles',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/dreamshaper.zip',
-    size: 604 * 1024 * 1024, // ~600MB
-    style: 'creative',
-  },
-  {
-    id: 'cyberrealistic',
-    name: 'CyberRealistic',
-    description: 'High-quality photorealistic images with modern aesthetics',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/cyberrealistic_v32.zip',
-    size: 603 * 1024 * 1024, // ~600MB
-    style: 'photorealistic',
-  },
-  {
-    id: 'epicrealism',
-    name: 'Epic Realism',
-    description: 'Hyper-realistic images - one of the best for realism',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/epicrealism_pureEvolutionV4.zip',
-    size: 603 * 1024 * 1024, // ~600MB
-    style: 'photorealistic',
-  },
-  {
-    id: 'counterfeit',
-    name: 'Counterfeit v3',
-    description: 'Top anime model - high-quality anime art generation',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/counterfit-v3.0.zip',
-    size: 605 * 1024 * 1024, // ~600MB
+    id: 'anythingv5_cpu',
+    name: 'Anything V5 (CPU)',
+    description: 'Versatile anime/creative model - works on all devices',
+    downloadUrl: 'https://huggingface.co/xororz/sd-mnn/resolve/main/AnythingV5.zip',
+    size: 1.2 * 1024 * 1024 * 1024,
     style: 'anime',
+    backend: 'mnn',
   },
   {
-    id: 'meinamix',
-    name: 'MeinaMix',
-    description: 'Popular anime/stylized model with vibrant colors',
-    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/meinamix.zip',
-    size: 603 * 1024 * 1024, // ~600MB
+    id: 'absolutereality_cpu',
+    name: 'Absolute Reality (CPU)',
+    description: 'Photorealistic model - realistic portraits and scenes',
+    downloadUrl: 'https://huggingface.co/xororz/sd-mnn/resolve/main/AbsoluteReality.zip',
+    size: 1.2 * 1024 * 1024 * 1024,
+    style: 'photorealistic',
+    backend: 'mnn',
+  },
+  {
+    id: 'qteamix_cpu',
+    name: 'QteaMix (CPU)',
+    description: 'Cute chibi style anime art generation',
+    downloadUrl: 'https://huggingface.co/xororz/sd-mnn/resolve/main/QteaMix.zip',
+    size: 1.2 * 1024 * 1024 * 1024,
     style: 'anime',
+    backend: 'mnn',
+  },
+  {
+    id: 'chilloutmix_cpu',
+    name: 'ChilloutMix (CPU)',
+    description: 'Realistic portraits with smooth, natural aesthetics',
+    downloadUrl: 'https://huggingface.co/xororz/sd-mnn/resolve/main/ChilloutMix.zip',
+    size: 1.2 * 1024 * 1024 * 1024,
+    style: 'photorealistic',
+    backend: 'mnn',
+  },
+  {
+    id: 'cuteyukimix_cpu',
+    name: 'CuteYukiMix (CPU)',
+    description: 'High-quality anime art with detailed character rendering',
+    downloadUrl: 'https://huggingface.co/xororz/sd-mnn/resolve/main/CuteYukiMix.zip',
+    size: 1.2 * 1024 * 1024 * 1024,
+    style: 'anime',
+    backend: 'mnn',
+  },
+  // === NPU Models (QNN backend - Snapdragon 8 Gen 1+ only, much faster) ===
+  {
+    id: 'anythingv5_npu',
+    name: 'Anything V5 (NPU)',
+    description: 'Fast NPU-accelerated anime model - Snapdragon 8 Gen 1+ only',
+    downloadUrl: 'https://huggingface.co/xororz/sd-qnn/resolve/main/AnythingV5_qnn2.28_min.zip',
+    size: 1.1 * 1024 * 1024 * 1024,
+    style: 'anime',
+    backend: 'qnn',
+  },
+  {
+    id: 'absolutereality_npu',
+    name: 'Absolute Reality (NPU)',
+    description: 'Fast NPU-accelerated photorealistic model - Snapdragon 8 Gen 1+ only',
+    downloadUrl: 'https://huggingface.co/xororz/sd-qnn/resolve/main/AbsoluteReality_qnn2.28_min.zip',
+    size: 1.1 * 1024 * 1024 * 1024,
+    style: 'photorealistic',
+    backend: 'qnn',
+  },
+  {
+    id: 'qteamix_npu',
+    name: 'QteaMix (NPU)',
+    description: 'Fast NPU-accelerated chibi anime model - Snapdragon 8 Gen 1+ only',
+    downloadUrl: 'https://huggingface.co/xororz/sd-qnn/resolve/main/QteaMix_qnn2.28_min.zip',
+    size: 1.1 * 1024 * 1024 * 1024,
+    style: 'anime',
+    backend: 'qnn',
+  },
+  {
+    id: 'chilloutmix_npu',
+    name: 'ChilloutMix (NPU)',
+    description: 'Fast NPU-accelerated realistic portraits - Snapdragon 8 Gen 1+ only',
+    downloadUrl: 'https://huggingface.co/xororz/sd-qnn/resolve/main/ChilloutMix_qnn2.28_min.zip',
+    size: 1.1 * 1024 * 1024 * 1024,
+    style: 'photorealistic',
+    backend: 'qnn',
+  },
+  {
+    id: 'cuteyukimix_npu',
+    name: 'CuteYukiMix (NPU)',
+    description: 'Fast NPU-accelerated anime model - Snapdragon 8 Gen 1+ only',
+    downloadUrl: 'https://huggingface.co/xororz/sd-qnn/resolve/main/CuteYukiMix_qnn2.28_min.zip',
+    size: 1.1 * 1024 * 1024 * 1024,
+    style: 'anime',
+    backend: 'qnn',
   },
 ];
 
@@ -339,6 +331,7 @@ export const ModelsScreen: React.FC = () => {
         downloadedAt: new Date().toISOString(),
         size: modelInfo.size,
         style: modelInfo.style,
+        backend: modelInfo.backend,
       };
 
       await modelManager.addDownloadedImageModel(imageModel);
@@ -564,6 +557,7 @@ export const ModelsScreen: React.FC = () => {
         downloadedAt: new Date().toISOString(),
         size: modelInfo.size,
         style: modelInfo.style,
+        backend: modelInfo.backend,
       };
 
       await modelManager.addDownloadedImageModel(imageModel);
