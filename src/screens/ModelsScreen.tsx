@@ -53,6 +53,7 @@ const AVAILABLE_IMAGE_MODELS: Array<{
   size: number;
   style: string;
 }> = [
+  // === Photorealistic Models (patch-14022024 - 1GB+, stable) ===
   {
     id: 'absolute_reality',
     name: 'Absolute Reality',
@@ -62,13 +63,79 @@ const AVAILABLE_IMAGE_MODELS: Array<{
     style: 'photorealistic',
   },
   {
+    id: 'chilloutmix',
+    name: 'ChilloutMix',
+    description: 'Popular for realistic portraits, especially Asian features',
+    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-14022024/chilloutmix.zip',
+    size: 1034 * 1024 * 1024, // ~1GB
+    style: 'photorealistic',
+  },
+  {
+    id: 'realvision',
+    name: 'Realistic Vision',
+    description: 'Top-tier realistic model - excellent for human faces and scenes',
+    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-14022024/realvision.zip',
+    size: 1034 * 1024 * 1024, // ~1GB
+    style: 'photorealistic',
+  },
+  // === Creative/Artistic Models ===
+  {
     id: 'lcm_dreamshaper_v7',
     name: 'LCM DreamShaper v7',
-    description: 'Fast generation (4-8 steps) - experimental LCM model',
+    description: 'Fast generation (4-8 steps) - versatile creative model',
     huggingFaceRepo: 'aislamov/lcm-dreamshaper-v7-onnx',
     huggingFaceFiles: LCM_HUGGINGFACE_FILES,
     size: 2.22 * 1024 * 1024 * 1024, // ~2.22GB
     style: 'creative',
+  },
+  // === Additional Models (patch-25022024 - 600MB, may have compatibility issues) ===
+  {
+    id: 'deliberate',
+    name: 'Deliberate',
+    description: 'Digital art & realism blend - detailed artistic illustrations',
+    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/deliberate.zip',
+    size: 604 * 1024 * 1024, // ~600MB
+    style: 'artistic',
+  },
+  {
+    id: 'dreamshaper',
+    name: 'DreamShaper',
+    description: 'Versatile model for fantasy, sci-fi, and artistic styles',
+    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/dreamshaper.zip',
+    size: 604 * 1024 * 1024, // ~600MB
+    style: 'creative',
+  },
+  {
+    id: 'cyberrealistic',
+    name: 'CyberRealistic',
+    description: 'High-quality photorealistic images with modern aesthetics',
+    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/cyberrealistic_v32.zip',
+    size: 603 * 1024 * 1024, // ~600MB
+    style: 'photorealistic',
+  },
+  {
+    id: 'epicrealism',
+    name: 'Epic Realism',
+    description: 'Hyper-realistic images - one of the best for realism',
+    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/epicrealism_pureEvolutionV4.zip',
+    size: 603 * 1024 * 1024, // ~600MB
+    style: 'photorealistic',
+  },
+  {
+    id: 'counterfeit',
+    name: 'Counterfeit v3',
+    description: 'Top anime model - high-quality anime art generation',
+    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/counterfit-v3.0.zip',
+    size: 605 * 1024 * 1024, // ~600MB
+    style: 'anime',
+  },
+  {
+    id: 'meinamix',
+    name: 'MeinaMix',
+    description: 'Popular anime/stylized model with vibrant colors',
+    downloadUrl: 'https://github.com/ShiftHackZ/Local-Diffusion-Models-SDAI-ONXX/releases/download/patch-25022024/meinamix.zip',
+    size: 603 * 1024 * 1024, // ~600MB
+    style: 'anime',
   },
 ];
 
