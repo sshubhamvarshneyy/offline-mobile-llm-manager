@@ -37,6 +37,10 @@ export const GalleryScreen: React.FC = () => {
 
   const { generatedImages, removeGeneratedImage } = useAppStore();
 
+  // Multi-select mode state
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
   // Collect image attachment IDs from conversation messages for matching
   const conversations = useChatStore(s => s.conversations);
   const chatImageIds = useMemo(() => {
@@ -122,6 +126,55 @@ export const GalleryScreen: React.FC = () => {
     );
   }, [selectedImage, removeGeneratedImage]);
 
+  const toggleSelectMode = useCallback(() => {
+    setIsSelectMode(prev => {
+      if (prev) {
+        setSelectedIds(new Set());
+      }
+      return !prev;
+    });
+  }, []);
+
+  const toggleImageSelection = useCallback((imageId: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(imageId)) {
+        newSet.delete(imageId);
+      } else {
+        newSet.add(imageId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedIds.size === 0) return;
+
+    Alert.alert(
+      'Delete Images',
+      `Are you sure you want to delete ${selectedIds.size} image${selectedIds.size > 1 ? 's' : ''}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            for (const imageId of selectedIds) {
+              await onnxImageGeneratorService.deleteGeneratedImage(imageId);
+              removeGeneratedImage(imageId);
+            }
+            setSelectedIds(new Set());
+            setIsSelectMode(false);
+          },
+        },
+      ]
+    );
+  }, [selectedIds, removeGeneratedImage]);
+
+  const selectAll = useCallback(() => {
+    setSelectedIds(new Set(displayImages.map(img => img.id)));
+  }, [displayImages]);
+
   const handleSaveImage = useCallback(async (image: GeneratedImage) => {
     try {
       if (Platform.OS === 'android') {
@@ -179,34 +232,93 @@ export const GalleryScreen: React.FC = () => {
     });
   };
 
-  const renderGridItem = ({ item }: { item: GeneratedImage }) => (
-    <TouchableOpacity
-      style={styles.gridItem}
-      onPress={() => setSelectedImage(item)}
-      onLongPress={() => handleDelete(item)}
-      activeOpacity={0.8}
-    >
-      <Image
-        source={{ uri: `file://${item.imagePath}` }}
-        style={styles.gridImage}
-      />
-    </TouchableOpacity>
-  );
+  const renderGridItem = ({ item }: { item: GeneratedImage }) => {
+    const isSelected = selectedIds.has(item.id);
+
+    return (
+      <TouchableOpacity
+        style={styles.gridItem}
+        onPress={() => {
+          if (isSelectMode) {
+            toggleImageSelection(item.id);
+          } else {
+            setSelectedImage(item);
+          }
+        }}
+        onLongPress={() => {
+          if (!isSelectMode) {
+            setIsSelectMode(true);
+            setSelectedIds(new Set([item.id]));
+          }
+        }}
+        activeOpacity={0.8}
+      >
+        <Image
+          source={{ uri: `file://${item.imagePath}` }}
+          style={styles.gridImage}
+        />
+        {isSelectMode && (
+          <View style={[styles.selectionOverlay, isSelected && styles.selectionOverlaySelected]}>
+            <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+              {isSelected && <Icon name="check" size={14} color="#fff" />}
+            </View>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Icon name="x" size={24} color={COLORS.text} />
-        </TouchableOpacity>
-        <Text style={styles.title}>{screenTitle}</Text>
-        <Text style={styles.countBadge}>
-          {displayImages.length}
-        </Text>
+        {isSelectMode ? (
+          <>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={toggleSelectMode}
+            >
+              <Icon name="x" size={24} color={COLORS.text} />
+            </TouchableOpacity>
+            <Text style={styles.title}>
+              {selectedIds.size} selected
+            </Text>
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={selectAll}
+            >
+              <Text style={styles.headerButtonText}>All</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.headerButton, selectedIds.size === 0 && styles.headerButtonDisabled]}
+              onPress={handleDeleteSelected}
+              disabled={selectedIds.size === 0}
+            >
+              <Icon name="trash-2" size={20} color={selectedIds.size === 0 ? COLORS.textMuted : COLORS.error} />
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => navigation.goBack()}
+            >
+              <Icon name="x" size={24} color={COLORS.text} />
+            </TouchableOpacity>
+            <Text style={styles.title}>{screenTitle}</Text>
+            <Text style={styles.countBadge}>
+              {displayImages.length}
+            </Text>
+            {displayImages.length > 0 && (
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={toggleSelectMode}
+              >
+                <Icon name="check-square" size={20} color={COLORS.text} />
+              </TouchableOpacity>
+            )}
+          </>
+        )}
       </View>
 
       {/* Active generation banner */}
@@ -409,6 +521,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textMuted,
     fontWeight: '500',
+    marginRight: 8,
+  },
+  headerButton: {
+    padding: 8,
+    marginLeft: 4,
+  },
+  headerButtonDisabled: {
+    opacity: 0.5,
+  },
+  headerButtonText: {
+    fontSize: 14,
+    color: COLORS.primary,
+    fontWeight: '500',
   },
   // Active generation banner
   genBanner: {
@@ -480,6 +605,29 @@ const styles = StyleSheet.create({
   gridImage: {
     width: '100%',
     height: '100%',
+  },
+  selectionOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    padding: 6,
+  },
+  selectionOverlaySelected: {
+    backgroundColor: 'rgba(99, 102, 241, 0.25)',
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#fff',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
   },
   // Empty state
   emptyContainer: {
