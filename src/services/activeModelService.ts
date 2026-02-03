@@ -45,6 +45,7 @@ class ActiveModelService {
   // Track what's actually loaded to prevent duplicate loads
   private loadedTextModelId: string | null = null;
   private loadedImageModelId: string | null = null;
+  private loadedImageModelThreads: number | null = null;
   // Promises to prevent concurrent load attempts
   private textLoadPromise: Promise<void> | null = null;
   private imageLoadPromise: Promise<void> | null = null;
@@ -167,10 +168,16 @@ class ActiveModelService {
    * Timeout is 3 minutes to allow for first-time optimization (subsequent loads are faster)
    */
   async loadImageModel(modelId: string, timeoutMs: number = 180000): Promise<void> {
+    const store = useAppStore.getState();
+    const imageThreads = store.settings?.imageThreads ?? 4;
+
+    const needsThreadReload =
+      this.loadedImageModelId === modelId && this.loadedImageModelThreads !== imageThreads;
+
     // Already loaded this exact model - no-op
     if (this.loadedImageModelId === modelId) {
       const isLoaded = await onnxImageGeneratorService.isModelLoaded();
-      if (isLoaded) {
+      if (isLoaded && !needsThreadReload) {
         console.log('[ActiveModelService] Image model already loaded:', modelId);
         return;
       }
@@ -181,12 +188,11 @@ class ActiveModelService {
       console.log('[ActiveModelService] Image model load already in progress, waiting...');
       await this.imageLoadPromise;
       // Check if the completed load was for our model
-      if (this.loadedImageModelId === modelId) {
+      if (this.loadedImageModelId === modelId && this.loadedImageModelThreads === imageThreads) {
         return;
       }
     }
 
-    const store = useAppStore.getState();
     const model = store.downloadedImageModels.find(m => m.id === modelId);
     if (!model) throw new Error('Model not found');
 
@@ -197,27 +203,30 @@ class ActiveModelService {
     this.imageLoadPromise = (async () => {
       try {
         // Unload existing model first if different
-        if (this.loadedImageModelId && this.loadedImageModelId !== modelId) {
+        if (this.loadedImageModelId && (this.loadedImageModelId !== modelId || needsThreadReload)) {
           console.log('[ActiveModelService] Unloading previous image model:', this.loadedImageModelId);
           await onnxImageGeneratorService.unloadModel();
           this.loadedImageModelId = null;
+          this.loadedImageModelThreads = null;
         }
 
         console.log('[ActiveModelService] Loading image model:', modelId);
 
         // Add timeout to prevent hanging forever
-        const loadPromise = onnxImageGeneratorService.loadModel(model.modelPath);
+        const loadPromise = onnxImageGeneratorService.loadModel(model.modelPath, imageThreads);
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error('Image model loading timed out')), timeoutMs);
         });
 
         await Promise.race([loadPromise, timeoutPromise]);
         this.loadedImageModelId = modelId;
+        this.loadedImageModelThreads = imageThreads;
         store.setActiveImageModelId(modelId);
         console.log('[ActiveModelService] Image model loaded successfully:', modelId);
       } catch (error) {
         console.error('[ActiveModelService] Failed to load image model:', error);
         this.loadedImageModelId = null;
+        this.loadedImageModelThreads = null;
         throw error;
       } finally {
         this.loadingState.image = false;
@@ -250,6 +259,7 @@ class ActiveModelService {
       console.log('[ActiveModelService] Unloading image model:', this.loadedImageModelId);
       await onnxImageGeneratorService.unloadModel();
       this.loadedImageModelId = null;
+      this.loadedImageModelThreads = null;
       useAppStore.getState().setActiveImageModelId(null);
       console.log('[ActiveModelService] Image model unloaded');
     } finally {

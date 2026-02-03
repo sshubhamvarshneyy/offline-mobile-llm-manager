@@ -475,6 +475,31 @@ export const GenerationSettingsModal: React.FC<GenerationSettingsModalProps> = (
               </View>
             </View>
 
+            <View style={styles.settingItem}>
+              <View style={styles.settingHeader}>
+                <Text style={styles.settingLabel}>Image Threads</Text>
+                <Text style={styles.settingValue}>{settings.imageThreads ?? 4}</Text>
+              </View>
+              <Text style={styles.settingDescription}>
+                CPU threads used for image generation. Takes effect next time the image model loads.
+              </Text>
+              <Slider
+                style={styles.slider}
+                minimumValue={1}
+                maximumValue={8}
+                step={1}
+                value={settings.imageThreads ?? 4}
+                onSlidingComplete={(value) => updateSettings({ imageThreads: value })}
+                minimumTrackTintColor={COLORS.primary}
+                maximumTrackTintColor={COLORS.surfaceLight}
+                thumbTintColor={COLORS.primary}
+              />
+              <View style={styles.sliderLabels}>
+                <Text style={styles.sliderMinMax}>1</Text>
+                <Text style={styles.sliderMinMax}>8</Text>
+              </View>
+            </View>
+
             <View style={styles.sectionDivider} />
 
             {/* Text Generation Settings */}

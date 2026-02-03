@@ -120,6 +120,27 @@ export const ModelSettingsScreen: React.FC = () => {
               thumbTintColor={COLORS.primary}
             />
           </View>
+
+          <View style={styles.sliderSection}>
+            <View style={styles.sliderHeader}>
+              <Text style={styles.sliderLabel}>Image Threads</Text>
+              <Text style={styles.sliderValue}>{rawSettings?.imageThreads ?? 4}</Text>
+            </View>
+            <Text style={styles.sliderDesc}>
+              CPU threads used for image generation (applies on next image model load)
+            </Text>
+            <Slider
+              style={styles.slider}
+              minimumValue={1}
+              maximumValue={8}
+              step={1}
+              value={rawSettings?.imageThreads ?? 4}
+              onSlidingComplete={(value) => updateSettings({ imageThreads: value })}
+              minimumTrackTintColor={COLORS.primary}
+              maximumTrackTintColor={COLORS.surface}
+              thumbTintColor={COLORS.primary}
+            />
+          </View>
         </Card>
 
         {/* Text Generation Settings */}

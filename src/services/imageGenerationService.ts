@@ -133,8 +133,11 @@ class ImageGenerationService {
     // Ensure image model is loaded
     const isImageModelLoaded = await onnxImageGeneratorService.isModelLoaded();
     const loadedPath = await onnxImageGeneratorService.getLoadedModelPath();
+    const desiredThreads = settings.imageThreads ?? 4;
+    const loadedThreads = onnxImageGeneratorService.getLoadedThreads();
+    const needsThreadReload = loadedThreads == null || loadedThreads !== desiredThreads;
 
-    if (!isImageModelLoaded || loadedPath !== activeImageModel.modelPath) {
+    if (!isImageModelLoaded || loadedPath !== activeImageModel.modelPath || needsThreadReload) {
       if (!activeImageModelId) {
         this.updateState({ error: 'No image model selected', isGenerating: false });
         return null;

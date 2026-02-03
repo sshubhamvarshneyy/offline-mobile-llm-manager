@@ -12,6 +12,8 @@ import java.nio.IntBuffer
 import java.nio.LongBuffer
 import java.util.UUID
 import kotlinx.coroutines.*
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * ONNX Runtime based image generator module for Stable Diffusion.
@@ -92,9 +94,15 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun loadModel(modelPath: String, promise: Promise) {
+    fun loadModel(params: ReadableMap, promise: Promise) {
         coroutineScope.launch {
             try {
+                val modelPath = params.getString("modelPath")
+                if (modelPath.isNullOrBlank()) {
+                    promise.reject("INVALID_ARGS", "modelPath is required")
+                    return@launch
+                }
+
                 val modelDir = File(modelPath)
                 if (!modelDir.exists() || !modelDir.isDirectory) {
                     promise.reject("MODEL_NOT_FOUND", "Model directory not found: $modelPath")
@@ -132,6 +140,15 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
                 Log.d(TAG, "Loading ONNX models from: $modelPath")
                 val loadStart = System.currentTimeMillis()
 
+                val availableThreads = Runtime.getRuntime().availableProcessors()
+                val requestedThreads = if (params.hasKey("threads") && !params.isNull("threads")) {
+                    params.getInt("threads")
+                } else {
+                    null
+                }
+                val threadCount = max(1, min(requestedThreads ?: 4, availableThreads))
+                Log.d(TAG, "Using $threadCount threads for ONNX sessions")
+
                 // Initialize ONNX Runtime environment
                 if (ortEnv == null) {
                     ortEnv = OrtEnvironment.getEnvironment()
@@ -140,13 +157,13 @@ class ONNXImageGeneratorModule(reactContext: ReactApplicationContext) :
                 // Configure session options - ALL_OPT for best runtime performance
                 val cpuSessionOptions = OrtSession.SessionOptions().apply {
                     setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                    setIntraOpNumThreads(Runtime.getRuntime().availableProcessors())
+                    setIntraOpNumThreads(threadCount)
                 }
 
                 // UNet session with NNAPI for GPU acceleration
                 val unetSessionOptions = OrtSession.SessionOptions().apply {
                     setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                    setIntraOpNumThreads(Runtime.getRuntime().availableProcessors())
+                    setIntraOpNumThreads(threadCount)
                     try {
                         addNnapi()
                         Log.d(TAG, "NNAPI execution provider enabled for UNet")

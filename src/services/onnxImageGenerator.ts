@@ -22,6 +22,7 @@ class ONNXImageGeneratorService {
   private previewListener: any = null;
   private completeListener: any = null;
   private errorListener: any = null;
+  private loadedThreads: number | null = null;
 
   constructor() {
     if (Platform.OS === 'android' && ONNXImageGeneratorModule) {
@@ -51,16 +52,28 @@ class ONNXImageGeneratorService {
     }
   }
 
-  async loadModel(modelPath: string): Promise<boolean> {
+  async loadModel(modelPath: string, threads?: number): Promise<boolean> {
     if (!this.isAvailable()) {
       throw new Error('ONNX image generation is not available on this platform');
     }
-    return await ONNXImageGeneratorModule.loadModel(modelPath);
+    const params: { modelPath: string; threads?: number } = { modelPath };
+    if (typeof threads === 'number') {
+      params.threads = threads;
+    }
+    const result = await ONNXImageGeneratorModule.loadModel(params);
+    this.loadedThreads = typeof threads === 'number' ? threads : this.loadedThreads;
+    return result;
+  }
+
+  getLoadedThreads(): number | null {
+    return this.loadedThreads;
   }
 
   async unloadModel(): Promise<boolean> {
     if (!this.isAvailable()) return true;
-    return await ONNXImageGeneratorModule.unloadModel();
+    const result = await ONNXImageGeneratorModule.unloadModel();
+    this.loadedThreads = null;
+    return result;
   }
 
   async generateImage(

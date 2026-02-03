@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { COLORS } from '../constants';
 import { Message } from '../types';
+import { stripControlTokens } from '../utils/messageContent';
 
 interface ChatMessageProps {
   message: Message;
@@ -134,18 +135,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   const [editedContent, setEditedContent] = useState(message.content);
   const [showThinking, setShowThinking] = useState(false);
 
+  const displayContent = message.role === 'assistant'
+    ? stripControlTokens(message.content)
+    : message.content;
+
   // Parse content for <think> blocks (only for assistant messages)
   const parsedContent = message.role === 'assistant'
-    ? parseThinkingContent(message.content)
+    ? parseThinkingContent(displayContent)
     : { thinking: null, response: message.content, isThinkingComplete: true };
 
   const isUser = message.role === 'user';
   const hasAttachments = message.attachments && message.attachments.length > 0;
 
   const handleCopy = () => {
-    Clipboard.setString(message.content);
+    Clipboard.setString(displayContent);
     if (onCopy) {
-      onCopy(message.content);
+      onCopy(displayContent);
     }
     setShowActionMenu(false);
     Alert.alert('Copied', 'Message copied to clipboard');

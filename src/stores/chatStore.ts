@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Message, Conversation, MediaAttachment, GenerationMeta } from '../types';
+import { stripControlTokens } from '../utils/messageContent';
 
 interface ChatState {
   // Conversations
@@ -198,7 +199,7 @@ export const useChatStore = create<ChatState>()(
 
       appendToStreamingMessage: (token) => {
         set((state) => ({
-          streamingMessage: state.streamingMessage + token,
+          streamingMessage: stripControlTokens(state.streamingMessage + token),
           isStreaming: true,
           isThinking: false,
         }));
@@ -215,10 +216,11 @@ export const useChatStore = create<ChatState>()(
       finalizeStreamingMessage: (conversationId, generationTimeMs, generationMeta) => {
         const { streamingMessage, streamingForConversationId, addMessage } = get();
         // Only finalize if this is the conversation we were generating for
-        if (streamingForConversationId === conversationId && streamingMessage.trim()) {
+        const sanitizedMessage = stripControlTokens(streamingMessage).trim();
+        if (streamingForConversationId === conversationId && sanitizedMessage) {
           addMessage(conversationId, {
             role: 'assistant',
-            content: streamingMessage.trim(),
+            content: sanitizedMessage,
           }, undefined, generationTimeMs, generationMeta);
         }
         set({
