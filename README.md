@@ -64,17 +64,27 @@ Every response shows detailed generation metadata: GPU backend (OpenCL or CPU), 
 - Message actions: Copy, Edit, Resend
 - Voice input with on-device Whisper transcription
 - **Vision model support** with image attachments
+- **Document attachments** — Attach PDF, TXT, and other documents (text extracted on-device)
+- **System info messages** — Model load times and status shown in chat
 - Debug panel for power users
 
 ### Vision Model Support
 
-Send images to vision-capable models like LLaVA and SmolVLM. When you download a vision model, LocalLLM automatically detects and downloads the required multimodal projector (mmproj) file.
+Send images to vision-capable models like LLaVA, SmolVLM, and Qwen-VL. When you download a vision model, LocalLLM automatically detects and downloads the required multimodal projector (mmproj) file alongside the main model.
 
 **Vision features:**
-- Automatic mmproj file detection and download
+- **Automatic mmproj detection and download** — Combined download progress shows both files
+- **Runtime mmproj discovery** — If mmproj wasn't linked during download, it's detected when loading
+- **Combined size display** — Model size always includes mmproj for accurate storage estimates
 - Camera and photo library support
 - Image preview before sending
 - Works completely offline after download
+
+**Supported Vision Models:**
+- SmolVLM (500M-2B) — Compact and fast
+- Qwen2-VL / Qwen3-VL — Excellent multilingual vision
+- LLaVA — Large Language and Vision Assistant
+- MiniCPM-V — Efficient multimodal
 
 ---
 
@@ -261,6 +271,7 @@ Image metadata is persisted across app restarts via AsyncStorage, so your galler
 **local-dream Inference:**
 - **MNN backend (CPU):** Multi-threaded ARM NEON inference, works on any ARM64 device
 - **QNN backend (NPU):** Hardware-accelerated inference on Qualcomm Snapdragon 8 Gen 1+ via Qualcomm AI Engine
+- **Auto backend selection:** Automatically detects NPU support and uses QNN when available, falls back to MNN
 - Models are pre-converted and hosted on HuggingFace by [xororz](https://huggingface.co/xororz)
 
 **Model Architecture:**
@@ -346,6 +357,39 @@ Track active downloads and manage all your downloaded models in one place. See s
   <img src="screenshots/download-manager-top.jpg" width="300" alt="Download Manager">
   <img src="screenshots/download-manager-bottom.jpg" width="300" alt="Downloaded Models List">
 </p>
+
+**Download features:**
+- **Combined progress for vision models** — Shows total progress including mmproj file
+- **Background downloads on Android** — Downloads continue even when app is backgrounded
+- **Automatic retry** — Handles network interruptions gracefully
+- **Storage-aware** — Checks available space before downloading
+
+### Memory Management
+
+LocalLLM intelligently manages device memory to prevent crashes and ensure smooth performance.
+
+**Memory safety features:**
+- **Pre-load memory check** — Before loading any model, the app estimates RAM requirements and warns if memory is low
+- **Dynamic memory budget** — Uses up to 60% of device RAM for models, adjusts based on your device
+- **Combined RAM estimates** — Vision models show total RAM including mmproj overhead
+- **Graceful warnings** — Yellow warning for tight memory, red block for insufficient memory
+- **Memory display** — Home screen shows estimated RAM usage for loaded models
+
+**RAM estimation:**
+- Text models: File size × 1.5 (accounts for KV cache and activations)
+- Image models: File size × 1.8 (accounts for ONNX runtime overhead)
+- Vision projectors: Added to text model estimate
+
+### Storage Management
+
+Keep your device clean with built-in storage management tools.
+
+**Settings → Storage** provides:
+- **Storage overview** — Used vs. available space with visual bar
+- **Model breakdown** — Size of each downloaded model (including mmproj)
+- **Orphaned file detection** — Finds GGUF files on disk that aren't tracked as models (from failed downloads, manual copies, etc.)
+- **Stale download cleanup** — Clears invalid download entries that can appear after interrupted downloads
+- **Bulk deletion** — Delete all orphaned files with one tap
 
 ### On-Device Voice Transcription
 
@@ -534,14 +578,35 @@ And thousands more on Hugging Face...
 LocalLLM/
 ├── src/
 │   ├── components/      # Reusable UI components
+│   │   ├── ChatInput.tsx        # Message input with attachments
+│   │   ├── ChatMessage.tsx      # Message bubbles with metadata
+│   │   ├── ModelCard.tsx        # Model display card
+│   │   ├── ModelSelectorModal   # Quick model switcher
+│   │   └── CustomAlert.tsx      # Consistent alert dialogs
 │   ├── constants/       # App-wide constants and theme
 │   ├── hooks/           # Custom React hooks
 │   ├── navigation/      # React Navigation setup
 │   ├── screens/         # Main app screens
-│   ├── services/        # LLM, Whisper, hardware services
+│   │   ├── HomeScreen           # Dashboard with model status
+│   │   ├── ChatScreen           # Main chat interface
+│   │   ├── ModelsScreen         # Browse and download models
+│   │   ├── GalleryScreen        # Generated images gallery
+│   │   └── StorageSettingsScreen # Storage and cleanup
+│   ├── services/        # Core services
+│   │   ├── llm.ts               # LLM inference via llama.rn
+│   │   ├── activeModelService   # Singleton model lifecycle manager
+│   │   ├── modelManager         # Download and storage management
+│   │   ├── generationService    # Text generation orchestration
+│   │   ├── imageGenerationService # Image gen orchestration
+│   │   ├── hardwareService      # Device info and memory
+│   │   ├── documentService      # Document text extraction
+│   │   └── localDreamGenerator  # local-dream bridge
 │   ├── stores/          # Zustand state management
 │   └── types/           # TypeScript definitions
 ├── android/             # Android native code
+│   └── app/src/main/java/com/localllm/
+│       ├── download/            # Background download manager
+│       └── localdream/          # local-dream native module
 └── screenshots/         # App screenshots
 ```
 
@@ -572,10 +637,18 @@ See the [full build guide](#building-from-source) below for signing configuratio
 - **React Native** with TypeScript
 - **llama.rn** - Native GGUF model inference via llama.cpp with optional OpenCL GPU offloading
 - **whisper.rn** - On-device speech recognition via whisper.cpp
-- **local-dream** - Stable Diffusion image generation via MNN (CPU) and QNN (NPU) backends
+- **local-dream** - Stable Diffusion image generation via MNN (CPU) and QNN (NPU) backends with auto backend selection
 - **Android DownloadManager** - Native background model downloads that survive app backgrounding
 - **Zustand** - State management with AsyncStorage persistence
 - **React Navigation** - Native navigation with nested stacks
+
+### Key Architecture Patterns
+
+- **Singleton Services** — `activeModelService` manages model lifecycle to prevent duplicate loads and memory leaks
+- **Memory-First Loading** — All model loads check available RAM before proceeding
+- **Combined Asset Tracking** — Vision models track both main GGUF and mmproj as a single unit
+- **Background-Safe Operations** — Downloads and image generation continue when screens unmount
+- **Orphan Detection** — Storage management finds and cleans up untracked files
 
 ---
 
