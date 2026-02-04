@@ -4,7 +4,6 @@ import {
   ImageGenerationProgress,
   GeneratedImage,
 } from '../types';
-import RNFS from 'react-native-fs';
 
 const { LocalDreamModule } = NativeModules;
 
@@ -36,20 +35,6 @@ class LocalDreamGeneratorService {
     return this.eventEmitter;
   }
 
-  private async findFileRecursive(dir: string, fileName: string, maxDepth: number): Promise<boolean> {
-    if (maxDepth <= 0) return false;
-    try {
-      if (await RNFS.exists(`${dir}/${fileName}`)) return true;
-      const items = await RNFS.readDir(dir);
-      for (const item of items) {
-        if (item.isDirectory()) {
-          if (await this.findFileRecursive(item.path, fileName, maxDepth - 1)) return true;
-        }
-      }
-    } catch { /* ignore */ }
-    return false;
-  }
-
   isAvailable(): boolean {
     return Platform.OS === 'android' && LocalDreamModule != null;
   }
@@ -72,22 +57,9 @@ class LocalDreamGeneratorService {
     }
   }
 
-  async loadModel(modelPath: string, threads?: number): Promise<boolean> {
+  async loadModel(modelPath: string, threads?: number, backend: 'mnn' | 'qnn' | 'auto' = 'auto'): Promise<boolean> {
     if (!this.isAvailable()) {
       throw new Error('LocalDream image generation is not available on this platform');
-    }
-
-    // Detect backend from model files
-    // If unet.mnn exists -> CPU/MNN backend, otherwise -> QNN/NPU backend
-    // Search recursively since zip extraction may create nested directories
-    let backend = 'mnn';
-    try {
-      const foundMnn = await this.findFileRecursive(modelPath, 'unet.mnn', 3);
-      if (!foundMnn) {
-        backend = 'qnn';
-      }
-    } catch {
-      // Default to mnn if we can't check
     }
 
     const params: { modelPath: string; threads?: number; backend: string } = {

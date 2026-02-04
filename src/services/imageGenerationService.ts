@@ -219,9 +219,16 @@ class ImageGenerationService {
 
         // If triggered from a conversation, add assistant message with the image
         if (params.conversationId) {
+          const backend = activeImageModel.backend ?? 'mnn';
+          const gpuBackend = Platform.OS === 'ios'
+            ? 'Metal'
+            : backend === 'qnn'
+              ? 'QNN (NPU)'
+              : 'MNN (CPU)';
+
           const imageMeta: GenerationMeta = {
-            gpu: Platform.OS === 'ios',
-            gpuBackend: Platform.OS === 'ios' ? 'Metal' : 'CPU',
+            gpu: Platform.OS === 'ios' ? true : backend === 'qnn',
+            gpuBackend,
             modelName: activeImageModel.name,
             steps,
             guidanceScale,

@@ -153,6 +153,15 @@ class LocalDreamModule(reactContext: ReactApplicationContext) :
         return searchDir(dir, 0)
     }
 
+    private fun isNpuSupportedInternal(): Boolean {
+        val soc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Build.SOC_MODEL
+        } else {
+            ""
+        }
+        return soc.startsWith("SM") || soc.startsWith("QCS") || soc.startsWith("QCM")
+    }
+
     // =====================================================================
     // Process Lifecycle
     // =====================================================================
@@ -167,26 +176,50 @@ class LocalDreamModule(reactContext: ReactApplicationContext) :
                     return@launch
                 }
 
-                val backend = if (params.hasKey("backend")) params.getString("backend") else "mnn"
-                val isCpu = backend == "mnn"
-
                 val rawModelDir = File(modelPath)
                 if (!rawModelDir.exists() || !rawModelDir.isDirectory) {
                     promise.reject("MODEL_NOT_FOUND", "Model directory not found: $modelPath")
                     return@launch
                 }
 
-                // Resolve the actual model directory — zip extraction may create a nested subdirectory
-                // (react-native-zip-archive preserves zip structure, unlike local-dream which flattens it)
-                val modelDir = resolveModelDir(rawModelDir, isCpu)
-                if (modelDir == null) {
+                val requestedBackend = if (params.hasKey("backend")) params.getString("backend") else null
+                val normalizedBackend = when (requestedBackend?.lowercase()) {
+                    "mnn", "cpu" -> "mnn"
+                    "qnn", "npu" -> "qnn"
+                    "auto", null, "" -> "auto"
+                    else -> "auto"
+                }
+
+                // Resolve model directory for CPU and/or QNN
+                val cpuModelDir = resolveModelDir(rawModelDir, true)
+                val qnnModelDir = resolveModelDir(rawModelDir, false)
+                val npuSupported = isNpuSupportedInternal()
+
+                val (backend, modelDir) = when (normalizedBackend) {
+                    "mnn" -> if (cpuModelDir != null) "mnn" to cpuModelDir else null
+                    "qnn" -> if (qnnModelDir != null) "qnn" to qnnModelDir else null
+                    else -> {
+                        when {
+                            qnnModelDir != null && npuSupported -> "qnn" to qnnModelDir
+                            cpuModelDir != null -> "mnn" to cpuModelDir
+                            qnnModelDir != null -> "qnn" to qnnModelDir
+                            else -> null
+                        }
+                    }
+                } ?: run {
                     val contents = rawModelDir.listFiles()?.map { it.name }?.joinToString(", ") ?: "empty"
-                    promise.reject("MODEL_FILES_NOT_FOUND",
-                        "Could not find model files (e.g. ${if (isCpu) "unet.mnn" else "unet.bin"}) " +
-                        "in $modelPath or its subdirectories. Directory contents: [$contents]")
+                    promise.reject(
+                        "MODEL_FILES_NOT_FOUND",
+                        "Could not find model files (unet.mnn or unet.bin) in $modelPath or its subdirectories. " +
+                            "Directory contents: [$contents]"
+                    )
                     return@launch
                 }
+
+                val isCpu = backend == "mnn"
+
                 Log.d(TAG, "Resolved model directory: ${modelDir.absolutePath}")
+                Log.d(TAG, "Backend selection: requested=$normalizedBackend, selected=$backend, npuSupported=$npuSupported")
 
                 // If same model already loaded and server is running, no-op
                 if (currentModelPath == modelPath && serverProcess?.isAlive == true && isServerReady) {
@@ -253,7 +286,8 @@ class LocalDreamModule(reactContext: ReactApplicationContext) :
                 startMonitor()
 
                 // Wait for server to be ready (poll health endpoint)
-                val ready = waitForServer(60000) // 60 second timeout
+                // Use 180 second timeout - first-time model loads can take a while
+                val ready = waitForServer(180000)
                 if (ready) {
                     isServerReady = true
                     Log.i(TAG, "Server is ready on port $SERVER_PORT")
@@ -269,8 +303,8 @@ class LocalDreamModule(reactContext: ReactApplicationContext) :
                             "Check logcat for [server] output.")
                     } else {
                         promise.reject("SERVER_TIMEOUT",
-                            "Server failed to start within timeout (60s). " +
-                            "Model may be loading slowly. Check logcat for [server] output.")
+                            "Server failed to start within 3 minutes. " +
+                            "The model may be too large or the device is low on memory.")
                     }
                 }
 
@@ -731,6 +765,12 @@ class LocalDreamModule(reactContext: ReactApplicationContext) :
 
     private fun saveRgbToPng(base64Rgb: String, width: Int, height: Int, outputPath: String) {
         val rgbBytes = Base64.decode(base64Rgb, Base64.DEFAULT)
+        val expectedSize = width * height * 3
+        if (rgbBytes.size != expectedSize) {
+            throw IllegalArgumentException(
+                "RGB data size ${rgbBytes.size} doesn't match expected $expectedSize (${width}x${height}x3)"
+            )
+        }
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val pixels = IntArray(width * height)
 
