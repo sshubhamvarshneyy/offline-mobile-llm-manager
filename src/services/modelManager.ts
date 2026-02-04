@@ -296,6 +296,62 @@ class ModelManager {
     return freeSpace.freeSpace;
   }
 
+  /**
+   * Find GGUF files on disk that aren't tracked in the model list.
+   * Returns array of orphaned file info.
+   */
+  async getOrphanedFiles(): Promise<Array<{ name: string; path: string; size: number }>> {
+    await this.initialize();
+    const orphaned: Array<{ name: string; path: string; size: number }> = [];
+
+    try {
+      const dirExists = await RNFS.exists(this.modelsDir);
+      if (!dirExists) return orphaned;
+
+      const files = await RNFS.readDir(this.modelsDir);
+      const models = await this.getDownloadedModels();
+
+      // Get all tracked file paths (including mmproj)
+      const trackedPaths = new Set<string>();
+      for (const model of models) {
+        trackedPaths.add(model.filePath);
+        if (model.mmProjPath) {
+          trackedPaths.add(model.mmProjPath);
+        }
+      }
+
+      // Find GGUF files not in tracked list
+      for (const file of files) {
+        if (file.isFile() && file.name.endsWith('.gguf')) {
+          if (!trackedPaths.has(file.path)) {
+            orphaned.push({
+              name: file.name,
+              path: file.path,
+              size: typeof file.size === 'string' ? parseInt(file.size, 10) : file.size,
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[ModelManager] Error scanning for orphaned files:', error);
+    }
+
+    return orphaned;
+  }
+
+  /**
+   * Delete an orphaned file from disk.
+   */
+  async deleteOrphanedFile(filePath: string): Promise<void> {
+    try {
+      await RNFS.unlink(filePath);
+      console.log('[ModelManager] Deleted orphaned file:', filePath);
+    } catch (error) {
+      console.error('[ModelManager] Failed to delete orphaned file:', error);
+      throw error;
+    }
+  }
+
   isDownloading(modelId: string, fileName: string): boolean {
     return this.downloadJobs.has(`${modelId}/${fileName}`);
   }
